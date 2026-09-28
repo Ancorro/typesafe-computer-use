@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, fields, replace
 
 from PIL import Image
@@ -81,6 +82,10 @@ Signature = tuple[
 LINES_PER_DIFFERENCE = 10  # a screen is the same when at most one line in ten differs...
 MAX_DIFFERING_LINES = 1  # ...and at most one line at all: a clock, a ticker, or an OCR slip
 ROW_PT = 20.0  # the row a line sits in, in screen points: coarse enough to survive OCR jitter, fine enough to see a scroll
+# Chromium names a tab by its title and, while the hover card shows memory, the memory the tab uses:
+# "Settings - Memory usage - 56.0 MB", or "High memory usage". The figure drifts between two
+# captures of one screen, and with the clock it makes two changed lines, so it is left out.
+TAB_MEMORY = re.compile(r" - (?:high )?memory usage - [\d.,]+ ?[kmgt]?b$", re.IGNORECASE)
 
 
 def signature(screen: Screen, items: list[Item]) -> Signature:
@@ -89,11 +94,12 @@ def signature(screen: Screen, items: list[Item]) -> Signature:
 
     A click that only moves the focus changes no text, but it changes what the next action can do,
     so it counts. A scroll on a dense page keeps nine tenths of the text and moves all of it, so the
-    row counts too: the same line lower down is a different line.
+    row counts too: the same line lower down is a different line. A tab's memory figure is no part
+    of the screen (see TAB_MEMORY).
     """
     focused = f"{screen.field.role}:{screen.field.label}" if screen.field else None
     row = ROW_PT * screen.scale
-    return (screen.app, screen.url, focused, tuple((it.text, round(it.center[1] / row)) for it in items))
+    return (screen.app, screen.url, focused, tuple((TAB_MEMORY.sub("", it.text), round(it.center[1] / row)) for it in items))
 
 
 def same_screen(a: Signature, b: Signature) -> bool:

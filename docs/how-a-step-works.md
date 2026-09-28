@@ -181,6 +181,8 @@ row that were already taken on the same screen earlier in the run (a click that 
 nothing, or a cycle through two pages). Two captures count as the same screen when at most
 one line differs, and that one is one line in ten or fewer: a clock or a ticker does not
 hide a stall, and a two-line modal on a dense page is not mistaken for nothing happening.
+The memory figure Chromium adds to a tab's name ("Settings - Memory usage - 56.0 MB") is left
+out of the comparison, since it drifts between two captures of one screen.
 When more than that changes every step, a run that is getting nowhere runs to `--steps`:
 the rules err toward running on, never toward stopping a run that is making progress.
 
