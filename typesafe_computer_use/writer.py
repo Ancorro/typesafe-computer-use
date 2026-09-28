@@ -191,16 +191,18 @@ def compose_text(
             "actions, the focused field's label and placeholder, and nearby screen text, and, when "
             "there are any, the step the agent is now working on and what the user said when asked. "
             "Decide the exact string to type. Never invent credentials, passwords, or personal data; for such "
-            "fields, or when the field should not be filled, set fill to false. Set submit to true only when "
-            "the goal needs Return pressed right after this text: a name or value it says to create, change, "
-            "or save, or a search it says to run. Otherwise false, as in a form with other fields still to fill."
+            "fields, or when the field should not be filled, set fill to false. Set submit to true when this "
+            "text completes what the goal asks of the field and Return should confirm it now, as a Save or OK "
+            "button would: a name or value the goal says to create, rename, change, or save, or a search it "
+            "says to run. Set it to false when the form has other fields still to fill, or when the goal only "
+            "needs the text entered. Give the reason before deciding submit."
         ),
         packet=packet,
-        properties={
+        properties={  # in this order: the reason is written before submit is decided
             "fill": {"type": "boolean"},
             "text": {"type": "string"},
-            "submit": {"type": "boolean"},
             "reason": {"type": "string"},
+            "submit": {"type": "boolean"},
         },
         max_tokens=256,
     )

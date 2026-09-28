@@ -144,8 +144,8 @@ the user said, once there are any:
   exactly the text just typed. When the element refuses the value, is gone, or holds
   something else by then, the unverified text stays in the field and the history line
   says so. Recovery never presses keys: the focus may have moved to another field.
-  `submit` is for a name or value the goal says to create, change, or save, or a search
-  it says to run. Then Return follows the text and nothing checks the field, since Return
+  `submit` is for a name or value the goal says to create, rename, change, or save, or a
+  search it says to run. Then Return follows the text and nothing checks the field, since Return
   usually takes it away; the next screen shows whether it took. A text area never gets
   Return: there it starts a new line.
 - **`use_browser`** with `site: other` receives the goal and returns `{ok, url}`.

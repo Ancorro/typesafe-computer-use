@@ -103,6 +103,7 @@ def test_the_writer_says_whether_return_follows_the_text(screen, role, reply, ex
     assert writer.compose_text(fake, GOAL, replace(screen, field=field), [], []) == expected
     schema = fake.requests[0]["output_config"]["format"]["schema"]
     assert schema["properties"]["submit"] == {"type": "boolean"} and "submit" in schema["required"]
+    assert list(schema["properties"]) == ["fill", "text", "reason", "submit"], "the reason is written before submit is decided"
 
 
 def test_the_capture_is_shrunk_to_the_edge_the_model_reads_and_left_intact():
