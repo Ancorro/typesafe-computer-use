@@ -9,7 +9,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageStat
 
 from .config import MAX_OPTIONS, MIN_OCR_CONFIDENCE
-from .models import AxNode, Box, Item, Screen
+from .models import MENU_BAR_PT, AxNode, Box, Item, Screen
 from .platform_adapter import desktop
 from .timing import OCR_RECTS, OCR_REGION_PCT, phase
 
@@ -21,7 +21,6 @@ MIN_TOKEN_OVERLAP = 0.5
 # OCR costs about two thirds of a step, and it scales with the amount of text, so the way to make it
 # cheaper is to read less of the screen: the frontmost window's own columns instead of the display,
 # and within them only the blobs of tiles that changed since the previous capture, one crop each.
-MENU_BAR_PT = 40.0  # the strip above every window, which the app's own menus live in
 REGION_MARGIN_PT = 8.0  # slack around the window, for the shadow and a clipped glyph
 THUMB_DIVISOR = 8  # the change detector works on a 1/8 scale grayscale copy
 TILE_PX = 256.0  # tile side in capture pixels
