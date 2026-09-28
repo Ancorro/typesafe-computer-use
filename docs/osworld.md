@@ -15,6 +15,7 @@ OSWorld's VM runs under QEMU and needs a Linux host with KVM, so it does not run
 scripts/osworld setup                                    # OSWorld at the pinned commit, jev beside it
 scripts/osworld run-jev chrome/<task id> --ocr rapidocr  # one OSWorld 1.0 task with jev
 scripts/osworld run-jev chrome/<id> chrome/<id> --ocr rapidocr   # several, one after another
+scripts/osworld run-jev chrome/<id> chrome/<id> chrome/<id> --ocr rapidocr --envs 3   # three VMs side by side
 scripts/osworld run-luna chrome/<task id>                # the same with OSWorld's GPT agent on Luna
 scripts/osworld results                                  # each task's score, steps, time, and tokens
 ```

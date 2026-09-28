@@ -192,3 +192,17 @@ def test_a_run_needs_setup_first(script):
     result = script("run-luna", "chrome/some-task")
     assert result.returncode == 2
     assert "run scripts/osworld setup first" in result.stderr
+
+
+@pytest.mark.parametrize("args", [("--envs", "3"), ("--envs=2",)])
+def test_either_run_takes_a_number_of_side_by_side_vms(script, args):
+    for command in (("run-jev", "chrome/some-task", "--ocr", "rapidocr"), ("run-luna", "chrome/some-task")):
+        result = script(*command, *args)
+        assert "run scripts/osworld setup first" in result.stderr, "the option is taken, and the run goes on to its setup check"
+
+
+@pytest.mark.parametrize("value", ["0", "9", "two"])
+def test_a_number_of_vms_outside_one_to_eight_is_refused(script, value):
+    result = script("run-luna", "chrome/some-task", "--envs", value)
+    assert result.returncode == 2
+    assert "--envs takes a number of VMs from 1 to 8" in result.stderr

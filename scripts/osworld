@@ -5,6 +5,7 @@
 #   scripts/osworld setup --v2-tasks             the same, plus OSWorld 2.0's gated task files (needs HF_TOKEN)
 #   scripts/osworld run-jev TASK... --ocr OCR    run tasks with jev, reading the screen with the OCR backend named
 #   scripts/osworld run-luna TASK...             run the same tasks with OSWorld's GPT agent and gpt-6-luna
+#                                                either run takes --envs N: N task VMs side by side
 #   scripts/osworld results [FOLDER]             each task's score, steps, and time, and jev's tokens (FOLDER: results/)
 #
 # A task is DOMAIN/ID: chrome/<id> names OSWorld 1.0's evaluation_examples/examples/chrome/<id>.json,
@@ -262,13 +263,23 @@ check_provider() {
   fi
 }
 
+# How many task VMs run side by side: --envs N, one by default. Each VM takes 4 GB and the agent's
+# CPU, so the machine's size bounds it.
+ENVS=1
+set_envs() {
+  [[ "$1" =~ ^[1-8]$ ]] || die "--envs takes a number of VMs from 1 to 8, not '$1'"
+  ENVS=$1
+}
+
 run_jev() {
   local tasks=() ocr="" task
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --ocr) [[ $# -gt 1 ]] || die "--ocr needs a backend"; ocr=$2; shift ;;
       --ocr=*) ocr=${1#--ocr=} ;;
-      -*) die "run-jev takes TASK... --ocr OCR, not $1" ;;
+      --envs) [[ $# -gt 1 ]] || die "--envs needs a number"; set_envs "$2"; shift ;;
+      --envs=*) set_envs "${1#--envs=}" ;;
+      -*) die "run-jev takes TASK... --ocr OCR [--envs N], not $1" ;;
       *) tasks+=("$1") ;;
     esac
     shift
@@ -310,7 +321,7 @@ except (ValueError, RuntimeError) as error:
     --observation_type "$JEV_OBSERVATION" \
     --max_steps "$MAX_STEPS" \
     --sleep_after_execution "$SLEEP_AFTER_EXECUTION" \
-    --num_envs 1 \
+    --num_envs "$ENVS" \
     --test_all_meta_path "$meta" \
     --eval_version "$version" \
     --result_dir "$RESULTS" \
@@ -320,8 +331,18 @@ except (ValueError, RuntimeError) as error:
 }
 
 run_luna() {
-  [[ $# -gt 0 ]] || die "run-luna needs a task: scripts/osworld run-luna DOMAIN/ID..."
-  local task
+  local tasks=() task
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --envs) [[ $# -gt 1 ]] || die "--envs needs a number"; set_envs "$2"; shift ;;
+      --envs=*) set_envs "${1#--envs=}" ;;
+      -*) die "run-luna takes TASK... [--envs N], not $1" ;;
+      *) tasks+=("$1") ;;
+    esac
+    shift
+  done
+  [[ ${#tasks[@]} -gt 0 ]] || die "run-luna needs a task: scripts/osworld run-luna DOMAIN/ID..."
+  set -- "${tasks[@]}"
   for task in "$@"; do check_task "$task"; done
   require_setup
   check_provider
@@ -339,7 +360,7 @@ run_luna() {
     --provider_name "$PROVIDER" \
     --max_steps "$MAX_STEPS" \
     --sleep_after_execution "$SLEEP_AFTER_EXECUTION" \
-    --num_envs 1 \
+    --num_envs "$ENVS" \
     --test_all_meta_path "$meta" \
     --eval_version "$version" \
     --result_dir "$RESULTS" \
