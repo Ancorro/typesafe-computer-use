@@ -6,6 +6,8 @@
 #   scripts/osworld-gcp run-jev TASK... --ocr OCR    start it, sync this copy, run jev on the tasks
 #                                                    (DOMAIN/ID each), copy the results back into results/
 #   scripts/osworld-gcp run-luna TASK...             the same with OSWorld's GPT agent on gpt-6-luna
+#   scripts/osworld-gcp attach                       follow the newest run again, then copy its results back
+#   scripts/osworld-gcp cancel                       stop the newest run on the machine
 #   scripts/osworld-gcp watch                        forward the task VM's screen; prints the URL
 #   scripts/osworld-gcp status                       running or stopped, and since when
 #   scripts/osworld-gcp stop                         stop the machine now; its disk stays
@@ -283,14 +285,77 @@ run_task() {
   sync_repo
   archive_local "${tasks[@]}"
 
-  # A terminal gets a remote terminal too, so Ctrl-C stops the run on the machine.
-  local tty=()
-  if [[ -t 0 && -t 1 ]]; then tty=(--ssh-flag=-t); fi
-  run "${SSH[@]}" --command "$REMOTE_EXEC scripts/osworld $command$args" ${tty[@]+"${tty[@]}"} || status=$?
+  # The run lives on the machine, not in this SSH session: a dropped or stalled connection, an ended
+  # IAP grant, or a closed laptop leaves it running, and `attach` follows it again.
+  local name pid
+  name=$(date -u +%Y%m%dT%H%M%SZ)
+  pid=$(start_detached "$name" "scripts/osworld $command$args")
+  say "the run is $name on the machine; Ctrl-C here stops only the following: scripts/osworld-gcp attach follows it again, cancel stops it"
+  follow "$name" "$pid" || status=$?
+  $DRY_RUN || [[ $status -ne 0 ]] || status=$(run_status "$name")
 
   pull_results || say "no results came back"
   run "${SSH[@]}" --command "$REMOTE_EXEC scripts/osworld results" </dev/null || true
   return "$status"
+}
+
+# Where a detached run keeps its log, its process id, and its exit status, on the machine. .osworld/
+# is never synced, so a sync during a run leaves them alone.
+RUNS_DIR=.osworld/runs
+KEEPALIVE=(--ssh-flag=-oServerAliveInterval=15 --ssh-flag=-oServerAliveCountMax=4) # a stalled stream ends in a minute
+RECONNECTS=${OSWORLD_GCP_RECONNECTS:-20}
+
+# Start COMMAND in the repo on the machine as its own session, immune to this connection, and print
+# its process id. Its output goes to RUNS_DIR/NAME.log and its exit status to NAME.status.
+start_detached() {
+  local name=$1 command=$2 inner outer
+  inner="osworld-exec $command; echo \$? > $RUNS_DIR/$name.status"
+  outer="cd $REMOTE_DIR && mkdir -p $RUNS_DIR && setsid nohup bash -c $(quote "$inner") > $RUNS_DIR/$name.log 2>&1 < /dev/null & echo \$! | tee $RUNS_DIR/$name.pid"
+  query 4242 "${SSH[@]}" --command "sudo -u $REMOTE_USER -H bash -c $(quote "$outer")" </dev/null | tr -d '\r' | tail -n 1
+}
+
+# Print a detached run's log here until the run ends, reconnecting when the stream drops. Each
+# reconnect starts after the last line already shown.
+follow() {
+  local name=$1 pid=$2 shown=0 tries=0 line log="$REMOTE_DIR/$RUNS_DIR/$name.log"
+  local tail_cmd
+  while :; do
+    tail_cmd="sudo -u $REMOTE_USER tail -n +$((shown + 1)) -F --pid=$pid $log 2>/dev/null"
+    if $DRY_RUN; then
+      show "${SSH[@]}" "${KEEPALIVE[@]}" --command "$tail_cmd"
+      return 0
+    fi
+    while IFS= read -r line; do
+      printf '%s\n' "$line"
+      shown=$((shown + 1))
+    done < <("${SSH[@]}" "${KEEPALIVE[@]}" --command "$tail_cmd" </dev/null 2>/dev/null || true)
+    if ! alive "$pid"; then return 0; fi
+    ((tries++ < RECONNECTS)) || die "lost the run's output $RECONNECTS times; it goes on on the machine: scripts/osworld-gcp attach"
+    say "the connection dropped; the run goes on on the machine, reconnecting"
+    sleep 5
+  done
+}
+
+# Whether the run is still going. A machine that cannot be reached counts as going: the run is
+# there, and so is its answer, once the connection is back.
+alive() {
+  local answer
+  answer=$("${SSH[@]}" "${KEEPALIVE[@]}" --command "kill -0 $1 2>/dev/null && echo alive || echo ended" </dev/null 2>/dev/null | tr -d '\r' | tail -n 1) || true
+  [[ $answer != ended ]]
+}
+
+# A finished run's exit status, from its NAME.status; 1 when it left none.
+run_status() {
+  local code
+  code=$("${SSH[@]}" --command "cat $REMOTE_DIR/$RUNS_DIR/$1.status 2>/dev/null" </dev/null 2>/dev/null | tr -d '\r' | tail -n 1) || true
+  [[ $code =~ ^[0-9]+$ ]] && echo "$code" || echo 1
+}
+
+# The newest detached run on the machine: its name and process id, as "NAME PID".
+latest_run() {
+  query "20260101T000000Z 4242" "${SSH[@]}" --command \
+    "cd $REMOTE_DIR/$RUNS_DIR 2>/dev/null && f=\$(ls -t *.pid 2>/dev/null | head -n 1) && echo \${f%.pid} \$(cat \$f)" </dev/null |
+    tr -d '\r' | tail -n 1
 }
 
 uptime_since() {
@@ -364,6 +429,21 @@ case "${1:-}" in
   pull-results)
     load
     pull_results
+    ;;
+  attach)
+    load
+    read -r name pid <<<"$(latest_run)"
+    [[ -n ${pid:-} ]] || die "no run has started on the machine"
+    say "following $name"
+    follow "$name" "$pid"
+    pull_results || say "no results came back"
+    ;;
+  cancel)
+    load
+    read -r name pid <<<"$(latest_run)"
+    [[ -n ${pid:-} ]] || die "no run has started on the machine"
+    # The run is its own session, so its process group holds the runner and everything it started.
+    run "${SSH[@]}" --command "sudo -u $REMOTE_USER kill -TERM -- -$pid 2>/dev/null && echo stopped $name || echo $name had already ended" </dev/null
     ;;
   _rsh)
     # rsync's remote shell: `HOST COMMAND...` (and -l USER, which is unused) to gcloud compute ssh.

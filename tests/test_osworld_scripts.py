@@ -70,6 +70,7 @@ def dry_run(tmp_path: Path, *args: str) -> str:
 
     A dry run runs nothing, and should it ever try, gcloud, terraform, and rsync here only fail.
     """
+    tmp_path.mkdir(exist_ok=True)
     shims = tmp_path / "bin"
     shims.mkdir()
     for tool in ("gcloud", "terraform", "rsync"):
@@ -95,6 +96,19 @@ def dry_run(tmp_path: Path, *args: str) -> str:
 def test_the_cloud_run_passes_every_task_to_the_machine(tmp_path):
     printed = dry_run(tmp_path, "run-jev", "chrome/a", "chrome/b", "--ocr", "rapidocr")
     assert "osworld-exec scripts/osworld run-jev chrome/a chrome/b --ocr rapidocr" in printed
+
+
+def test_the_cloud_run_lives_on_the_machine_not_in_the_connection(tmp_path):
+    printed = dry_run(tmp_path, "run-jev", "chrome/a", "--ocr", "rapidocr")
+    assert "setsid nohup bash -c" in printed, "the run is its own session on the machine"
+    assert ".osworld/runs/" in printed and ".status" in printed, "its log and exit status stay on the machine"
+    assert "tail -n +1 -F --pid=4242" in printed, "and this end follows its log"
+    assert "ServerAliveInterval=15" in printed, "noticing a stalled stream instead of hanging on it"
+
+
+def test_attach_follows_the_newest_run_and_cancel_stops_its_whole_session(tmp_path):
+    assert "tail -n +1 -F --pid=4242" in dry_run(tmp_path / "a", "attach")
+    assert "kill -TERM -- -4242" in dry_run(tmp_path / "b", "cancel")
 
 
 def test_the_cloud_run_moves_aside_the_local_copy_of_each_task(tmp_path):
