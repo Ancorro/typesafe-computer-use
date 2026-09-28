@@ -337,7 +337,9 @@ ANSWER_SYSTEM = (
     "care about, or a fact only the user has. One short question. Never ask for a password or any "
     "other credential, and never ask what user_said already answers. Leave both empty when the "
     "goal is reached, when no action of the agent's would help, or when the next step is one only "
-    "the user should take, such as a login or a payment."
+    "the user should take, such as a login or a payment. When the run ends short of the goal, "
+    "because you leave both empty or because why_the_run_stopped says it ends, say plainly what "
+    "the agent could not do."
 )
 
 

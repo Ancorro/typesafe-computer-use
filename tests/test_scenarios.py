@@ -13,6 +13,8 @@ import json
 import pytest
 from world import FakeWriter, Page, World, drive, scripted
 
+from typesafe_computer_use.runner import MAX_REPEATS, MAX_STALLS, STOPPED
+
 GOAL = "buy a ticket to the next show"
 
 # The click point of row N, in screen points: the center of (100, 100+40N, 600, 130+40N) halved.
@@ -1716,3 +1718,60 @@ def test_l53_unverified_keystrokes_stay_when_the_field_will_not_take_a_value(mon
     assert "via keystrokes" in state.history[0] and "could not safely restore previous value" in state.history[0]
     assert world.typed["Search"] == "bruno mars tour"  # left for the next step to see, not erased blind
     assert world.log == ["clear_field", "type:bruno mars tour"]  # emptied before typing, never after
+
+
+def test_l54_a_run_stuck_three_times_on_the_same_page_ends_with_the_writers_answer(monkeypatch, tmp_path):
+    """OSWorld's chrome/9f935cce: the classifier clicked the label beside a dropdown, which does nothing,
+    under every focus the writer gave, for ten hand-offs and three minutes. The third stall ends it."""
+    forms = "https://example.com/forms"
+    world = World(
+        [
+            Page(name="forms", items=["Agency", "-Any-", "Apply Filters"], url=forms, on={"click:-Any-": "open"}),
+            Page(name="open", items=["Civil Division", "Tax Division"], url=forms),
+        ]
+    )
+    writer = FakeWriter(reviews=[{"focus": "Open the '-Any-' dropdown"}] * 9)
+    policy = scripted(*[("click_item", "Agency")] * 20)
+
+    state = drive(world, policy, goal=GOAL, monkeypatch=monkeypatch, tmp_path=tmp_path, writer=writer)
+
+    assert state.outcome == "stuck"
+    assert [h.outcome for h in state.handoffs] == ["stalled"] * (MAX_STALLS - 1)
+    assert world.log == ["click:Agency"] * 7  # three to the first stall and two to each after, where a run went on for ten
+    assert len(writer.packets) == MAX_STALLS  # the last reading is the answer, though it offered one more focus
+    assert writer.packets[-1]["why_the_run_stopped"] == STOPPED["stuck"]
+    assert not state.answer.achieved
+    assert json.loads((tmp_path / "run" / "run.json").read_text())["outcome"] == "stuck"
+    assert "stuck: 3 stalls without reaching a new page; the run ends here" in (tmp_path / "run" / "run.log").read_text()
+
+
+def test_l55_a_new_page_starts_the_count_of_stalls_again(monkeypatch, tmp_path):
+    """A long task that stalls once on each of its pages, and each time a focus frees it, is never stuck."""
+    wizard = "https://example.com/signup/"
+    world = World(
+        [
+            *[
+                Page(name=f"step {n}", items=[f"Step {n} of 3", "Help", "Next"], url=f"{wizard}{n}", on={"click:Next": nxt})
+                for n, nxt in ((1, "step 2"), (2, "step 3"), (3, "welcome"))
+            ],
+            Page(name="welcome", items=["Welcome aboard"], url=f"{wizard}done"),
+        ]
+    )
+    helped: dict[str, int] = {}
+
+    def policy(state: dict, questions: dict) -> tuple:
+        """Try Help until the run stalls on it, then take Next, as the writer's focus says."""
+        url = state["browser_active_tab_url"]
+        if url.endswith("done"):
+            return ("done", None)
+        helped[url] = helped.get(url, 0) + 1
+        return ("click_item", "Help" if helped[url] <= MAX_REPEATS + 1 else "Next")
+
+    writer = FakeWriter(reviews=[{"focus": "Click 'Next'"}] * MAX_STALLS)
+
+    state = drive(world, policy, goal=GOAL, steps=30, monkeypatch=monkeypatch, tmp_path=tmp_path, writer=writer)
+
+    assert state.outcome == "done" and state.answer.achieved
+    assert world.page.name == "welcome"
+    assert [h.outcome for h in state.handoffs] == ["stalled"] * MAX_STALLS  # enough to be stuck, were they on one page
+    assert world.log == (["click:Help"] * (MAX_REPEATS + 1) + ["click:Next"]) * 3

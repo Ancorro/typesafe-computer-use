@@ -153,7 +153,8 @@ the user said, once there are any:
   screens before it, newest first up to 600 lines, because the goal may ask for a price
   that was on the listing and not on the checkout. It returns `{achieved, answer, focus, question}`,
   and is told to take the answer from those screens and the user's replies alone, to give a focus
-  as one move and not a plan, and never to ask for a credential. When an action ran after the last capture, the
+  as one move and not a plan, and never to ask for a credential. When the run ends short of the
+  goal, it says what the agent could not do. When an action ran after the last capture, the
   screen is captured again first. This one call uses `CLICKER_ANSWER_MODEL`, a stronger
   reader than the per-step writer.
 
@@ -208,8 +209,11 @@ The writer never picks a click: every action is still the classifier's.
 The exchange cannot go round on itself. A focus the classifier takes no action under
 leaves the answer it came with standing, without a second reading of the same screen.
 `--handoffs` (10) bounds the trips, three questions bound the asking, and a stop on
-the last step is final. A `done` the writer does not see on the screen is sent back
-like any other stop.
+the last step is final. So is a third stall with no new page since the first: two focuses
+did not free the classifier, so the run ends `stuck`, and the writer's answer says what
+the agent could not do. On OSWorld's Chrome tasks every run that stalled a third time on
+the same pages failed anyway, up to 210 s later, and no solved run stalled more than twice.
+A `done` the writer does not see on the screen is sent back like any other stop.
 
 ## Who did the work
 
