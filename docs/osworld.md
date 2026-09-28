@@ -56,6 +56,13 @@ compare their times with that in mind. OSWorld's runner skips a task that alread
 so a rerun first moves the earlier one to `results/archive/<time>/`; `scripts/osworld-gcp` moves
 its local copy aside the same way before a run, so a pull never mixes two runs' files.
 
+After each cloud run, `scripts/osworld-gcp` appends one JSON line per task to
+`benchmarks/osworld/<run>.jsonl`: the score, steps, time, outcome, and tokens per model, with the
+commit the run synced, whether the synced copy differed from it (and a hash of the difference),
+OSWorld's pinned commit, the command, and the machine. Rows are never edited; a rerun is a new file.
+They are not committed for you: committing a run's file is what makes it part of the record, and a
+row from a dirty copy says so. Screenshots and recordings stay in `results/`, out of git.
+
 OSWorld keeps no accessibility tree. With `JEV_OSWORLD_SAVE_A11Y=1` (in the environment or `.env`),
 jev saves each observation's raw tree in its run folder as `obs-NNN-a11y.xml`, counting from `000`,
 the task's first; that is what a mismatch between the tree and `osworld/a11y.py` is diagnosed from.

@@ -143,6 +143,13 @@ def test_the_detached_start_returns_at_once_and_leaves_its_pid_log_and_status(tm
     assert (runs / "run1.log").read_text().strip() == "ran scripts/osworld run-jev chrome/a"
 
 
+def test_the_cloud_run_records_its_rows_with_the_git_state_it_synced(tmp_path):
+    printed = dry_run(tmp_path, "run-jev", "chrome/a", "--ocr", "rapidocr")
+    (line,) = [line for line in printed.splitlines() if "typesafe_computer_use.osworld.record" in line]
+    assert "benchmarks/osworld/" in line and " results jev " in line and line.endswith(" chrome/a")
+    assert '"git_commit"' in line and '"git_dirty"' in line and '"command": "run-jev chrome/a --ocr rapidocr"' in line
+
+
 def test_attach_follows_the_newest_run_and_cancel_stops_its_whole_session(tmp_path):
     assert "tail -n +1 -F --pid=4242" in dry_run(tmp_path / "a", "attach")
     assert "kill -TERM -- -4242" in dry_run(tmp_path / "b", "cancel")
