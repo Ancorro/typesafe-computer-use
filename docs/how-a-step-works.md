@@ -153,9 +153,11 @@ the user said, once there are any:
   screens before it, newest first up to 600 lines, because the goal may ask for a price
   that was on the listing and not on the checkout. It returns `{achieved, answer, focus, question}`,
   and is told to take the answer from those screens and the user's replies alone, to give a focus
-  as one move and not a plan, and never to ask for a credential. When an action ran after the last capture, the
-  screen is captured again first. This one call uses `CLICKER_ANSWER_MODEL`, a stronger
-  reader than the per-step writer.
+  as one move and not a plan, and only a move the agent has: no shortcut, right-click, or text
+  selection (typing replaces what a field holds), and a website only by its https address. It
+  never asks for a credential, and when the run ends short of the goal it says what the agent
+  could not do. When an action ran after the last capture, the screen is captured again first.
+  This one call uses `CLICKER_ANSWER_MODEL`, a stronger reader than the per-step writer.
 
 Passwords are never typed. Rely on the browser's password manager or an SSO button
 the OCR can read.
@@ -180,6 +182,8 @@ row that were already taken on the same screen earlier in the run (a click that 
 nothing, or a cycle through two pages). Two captures count as the same screen when at most
 one line differs, and that one is one line in ten or fewer: a clock or a ticker does not
 hide a stall, and a two-line modal on a dense page is not mistaken for nothing happening.
+The memory figure Chromium adds to a tab's name ("Settings - Memory usage - 56.0 MB") is left
+out of the comparison, since it drifts between two captures of one screen.
 When more than that changes every step, a run that is getting nowhere runs to `--steps`:
 the rules err toward running on, never toward stopping a run that is making progress.
 
@@ -208,8 +212,11 @@ The writer never picks a click: every action is still the classifier's.
 The exchange cannot go round on itself. A focus the classifier takes no action under
 leaves the answer it came with standing, without a second reading of the same screen.
 `--handoffs` (10) bounds the trips, three questions bound the asking, and a stop on
-the last step is final. A `done` the writer does not see on the screen is sent back
-like any other stop.
+the last step is final. So is a third stall with no new page since the first: two focuses
+did not free the classifier, so the run ends `stuck`, and the writer's answer says what
+the agent could not do. On OSWorld's Chrome tasks every run that stalled a third time on
+the same pages failed anyway, up to 210 s later, and no solved run stalled more than twice.
+A `done` the writer does not see on the screen is sent back like any other stop.
 
 ## Who did the work
 
