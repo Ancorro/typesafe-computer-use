@@ -66,7 +66,7 @@ def kind_criteria(browser: str, email: str | None, offscreen: bool = False) -> d
     return {**clicks, **fixed_actions(browser, email)}
 
 
-ROW_MATES = 3  # how many neighbours name a duplicated item's row in a criterion; the history line takes them all
+ROW_MATES = 3  # how many neighbours name a duplicated item's row in the state; the history line takes them all
 
 
 def row_mates(items: list[Item], limit: int | None = ROW_MATES) -> dict[int, list[str]]:
@@ -74,7 +74,7 @@ def row_mates(items: list[Item], limit: int | None = ROW_MATES) -> dict[int, lis
 
     Three rows of events each end in a 'Buy'. The label says nothing about which; the row does,
     and the row is a fact the layout holds, so the code reads it and hands it over. `limit`
-    keeps a criterion short; None takes the whole row, for a line that has to identify it.
+    keeps the state short; None takes the whole row, for a line that has to identify it.
     """
     counts = Counter(it.text for it in items)
     out: dict[int, list[str]] = {}
@@ -88,20 +88,11 @@ def row_mates(items: list[Item], limit: int | None = ROW_MATES) -> dict[int, lis
     return out
 
 
-def item_criteria(screen: Screen, items: list[Item]) -> dict[str, str]:
-    """Each item as one line. A role prefix marks the ones the app itself declared, and a
-    duplicated label carries its row."""
-    hints = date_hints(items, screen)
-    mates = row_mates(items)
-    return {
-        str(it.index): (
-            f"{it.role + ' ' if it.from_ax and it.role else ''}{it.text!r} "
-            f"({screen.region(it)}"
-            f"{'; ' + hints[it.index] if it.index in hints else ''}"
-            f"{'; in the row of ' + ', '.join(repr(t) for t in mates[it.index]) if it.index in mates else ''})"
-        )
-        for it in items
-    }
+def item_criteria(items: list[Item]) -> dict[str, str]:
+    """Each item as its text, with a role prefix on the ones the app itself declared. Where it is,
+    its date and its row are in the state under the same `i`; TypeSafe bills every input token,
+    so the options do not repeat them."""
+    return {str(it.index): f"{it.role + ' ' if it.from_ax and it.role else ''}{it.text!r}" for it in items}
 
 
 def offscreen_criteria(nodes: list[AxNode]) -> dict[str, str]:
@@ -238,7 +229,7 @@ def decide(
                 "role come from the app's accessibility tree and are real controls; plain items are "
                 "text read from the screen."
             ),
-            criteria=item_criteria(screen, items),
+            criteria=item_criteria(items),
         )
     if screen.offscreen:
         questions["offscreen"] = Choice(

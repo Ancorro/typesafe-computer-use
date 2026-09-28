@@ -61,7 +61,7 @@ def render_payload(
         RULE,
         "QUESTION item  (Choice criteria)",
         RULE,
-        json.dumps(item_criteria(screen, items), indent=2),
+        json.dumps(item_criteria(items), indent=2),
         "",
         RULE,
         "QUESTION site  (Choice criteria)",

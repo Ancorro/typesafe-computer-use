@@ -91,15 +91,21 @@ def test_kind_criteria_offers_email_only_when_set():
     assert "click_item" in kind_criteria("Google Chrome", None)
 
 
-def test_item_criteria_and_state_carry_region_and_dates(screen, make_item):
-    items = [make_item(0, "Sale ends Oct 1, 2099", y1=100, y2=130), make_item(1, "Buy", y1=140, y2=170)]
-    crit = item_criteria(screen, items)
-    assert crit["0"].startswith("'Sale ends Oct 1, 2099' (top-left; dated 2099-10-01")
-    assert "near a line dated 2099-10-01" in crit["1"]
+def test_item_criteria_name_the_item_and_the_state_says_where_and_when(screen, make_item):
+    items = [
+        make_item(0, "Sale ends Oct 1, 2099", y1=100, y2=130),
+        make_item(1, "Buy", y1=140, y2=170),
+        replace(make_item(2, "Share", x1=1500, x2=1560), role="button", source="ax"),
+    ]
+    # The text, and the role of a control the app declared: nothing the state already says.
+    assert item_criteria(items) == {"0": "'Sale ends Oct 1, 2099'", "1": "'Buy'", "2": "button 'Share'"}
     state = base_state("buy the thing", screen, items, ["opened https://example.com/"])
     assert state["goal"] == "buy the thing"
     assert state["previous_actions"] == ["opened https://example.com/"]
-    assert state["screen_items_in_reading_order"][1]["when"].startswith("near a line dated")
+    rows = state["screen_items_in_reading_order"]
+    assert rows[0]["where"] == "top-left" and rows[0]["when"].startswith("dated 2099-10-01")
+    assert rows[1]["when"].startswith("near a line dated 2099-10-01")
+    assert rows[2]["role"] == "button" and rows[2]["where"] == "top-right"
     assert "today" in state["now"]
 
 
@@ -118,11 +124,10 @@ def test_a_duplicated_label_names_its_row_and_a_unique_one_does_not(screen, make
         make_item(5, "Buy", x1=420, x2=480),
         make_item(6, "Buy", x1=420, x2=480, y1=200, y2=230),
     ]
-    assert row_mates(wide)[5] == ["Col 0", "Col 1", "Col 2"]  # a criterion stays short
+    assert row_mates(wide)[5] == ["Col 0", "Col 1", "Col 2"]  # the state stays short
     assert row_mates(wide, limit=None)[5] == [f"Col {i}" for i in range(5)]  # a history line takes the whole row
-    crit = item_criteria(screen, items)
-    assert crit["5"].endswith("; in the row of 'Coldplay', 'Oct 2')")
-    assert "row" not in crit["3"] and "row" not in crit["6"]
+    crit = item_criteria(items)
+    assert crit["2"] == crit["5"] == "'Buy'"  # the option names the label; the state says which row
     state = base_state("buy a ticket to Coldplay", screen, items, [])
     rows = state["screen_items_in_reading_order"]
     assert rows[5]["beside"] == ["Coldplay", "Oct 2"] and "beside" not in rows[3]

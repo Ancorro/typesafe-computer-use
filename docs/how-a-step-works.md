@@ -15,7 +15,7 @@ AppleScript   ─► frontmost app and pid, active tab URL
 clock         ─► local date and time
 dates.py      ─► "dated 2026-10-13 (in 27 days)" on any block containing a date,
                  "near a line dated ..." on its neighbours, none from the menu bar's clock
-layout        ─► "in the row of ..." on any label that appears more than once
+layout        ─► "beside ..." on any label that appears more than once
 runner.py     ─► the actions already tried on this same screen, each of which led back here
                      │
                      ▼
@@ -35,10 +35,11 @@ Items carry where they came from: `ocr` for a text block, `ax` for a control the
 declared, `ax+ocr` when both found the same thing. A symbol OCR reads off a button or
 link, `←` on Back or `☆` on the bookmark star, is that control's icon, and the control
 stands for it: two options for one click would only split the vote. An `ax` item reads as
-`button 'Share' (top-right)` in the criteria, so the classifier can tell a real control
-from a line of text. A label that appears more than once carries its row as well:
-`'Buy' (middle-right; in the row of 'Coldplay', 'Oct 2')`, since the label says nothing
-about which and the layout does.
+`button 'Share'` in the criteria, so the classifier can tell a real control from a line of
+text. Where an item is, its date, and its row are in the state only, under the item's `i`:
+TypeSafe bills every input token, and a second copy in the criteria costs as much as the
+first. A label that appears more than once carries its row there, `"beside": ["Coldplay",
+"Oct 2"]` on a `'Buy'`, since the label says nothing about which and the layout does.
 
 Splitting the decision into three questions keeps screen noise out of the action
 choice. Every stall found while building this came from two options that meant the
