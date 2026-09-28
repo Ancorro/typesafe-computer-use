@@ -36,7 +36,9 @@ declared, `ax+ocr` when both found the same thing. An `ax` item reads as
 `button 'Share' (top-right)` in the criteria, so the classifier can tell a real control
 from a line of text. A label that appears more than once carries its row as well:
 `'Buy' (middle-right; in the row of 'Coldplay', 'Oct 2')`, since the label says nothing
-about which and the layout does.
+about which and the layout does. Text read inside the focused one-line field is not an
+item: it is the field's value or placeholder, the state carries the value, and the field
+is an item of its own when the app declares it. A text area keeps its lines.
 
 Splitting the decision into three questions keeps screen noise out of the action
 choice. Every stall found while building this came from two options that meant the

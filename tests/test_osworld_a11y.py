@@ -284,3 +284,17 @@ def test_a_node_that_answers_a_click_is_a_control_and_one_that_only_has_a_defaul
     )
     found = a11y.walk(a11y.active_app(tree), *DISPLAY)[0]
     assert [(n.role, n.label) for n in found] == [("section", "Row"), ("AXMenuItem", "Settings")]
+
+
+@pytest.mark.parametrize(("lines", "role"), [("multi_line", "AXTextArea"), ("single_line", "AXTextField")])
+def test_a_multi_line_entry_is_a_text_area_as_on_a_mac(lines, role):
+    """A `textarea` is an entry that says it is multi-line: its lines are content, not one value."""
+    tree = a11y.parse(
+        f'<desktop-frame xmlns:st="{a11y.NS_STATE}" xmlns:cp="{a11y.NS_COMPONENT}">'
+        '<application name="Google Chrome"><frame name="Chrome" st:active="true" cp:screencoord="(0, 0)" cp:size="(800, 600)">'
+        f'<entry name="Comment" st:focused="true" st:{lines}="true" cp:screencoord="(10, 10)" cp:size="(400, 120)"/>'
+        "</frame></application></desktop-frame>"
+    )
+    field = a11y.focused_field(tree)
+    assert (field.role, field.label) == (role, "Comment")
+    assert field.is_text
