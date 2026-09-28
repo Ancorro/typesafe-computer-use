@@ -14,7 +14,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .perceive import Element, Page
+from .perceive import Element, Page, TextBlock
 
 RULE = "=" * 78
 
@@ -78,6 +78,9 @@ class RunFolder:
                     "candidates": page.candidates,
                     "below_fold": page.below_fold,
                     "items": [asdict(e) for e in page.items],
+                    # The visible text the classifier also saw: replay rebuilds the same
+                    # state only if it comes back with the elements.
+                    "text": [asdict(tb) for tb in page.text],
                 },
                 indent=2,
             )
@@ -128,6 +131,15 @@ def render_payload(
     ]
     for it in page.items:
         parts.append(f"[{it.index:3d}] {it.x:5d},{it.y:5d} {it.w:4d}x{it.h:<4d} {it.tag:8s} {it.name!r}")
+    if page.text:
+        parts += [
+            "",
+            RULE,
+            f"PAGE TEXT  ({len(page.text)} visible blocks; evidence only, never click targets)",
+            RULE,
+        ]
+        for tb in page.text:
+            parts.append(f"      {tb.x:5d},{tb.y:5d} {tb.w:4d}x{tb.h:<4d} {tb.text!r}")
     return "\n".join(parts) + "\n"
 
 
@@ -156,6 +168,16 @@ def page_from_elements(data: dict) -> Page:
         )
         for it in data.get("items", [])
     ]
+    text = [
+        TextBlock(
+            text=str(tb.get("text", "")),
+            x=int(tb.get("x", 0)),
+            y=int(tb.get("y", 0)),
+            w=int(tb.get("w", 0)),
+            h=int(tb.get("h", 0)),
+        )
+        for tb in data.get("text", [])
+    ]
     return Page(
         url=str(data.get("url", "")),
         title=str(data.get("title", "")),
@@ -170,6 +192,7 @@ def page_from_elements(data: dict) -> Page:
         scroll_y=int(data.get("scroll_y", 0)),
         candidates=int(data.get("candidates", len(items))),
         below_fold=int(data.get("below_fold", 0)),
+        text=text,
     )
 
 
