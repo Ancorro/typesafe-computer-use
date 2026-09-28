@@ -9,7 +9,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageStat
 
 from .config import MAX_OPTIONS, MIN_OCR_CONFIDENCE
-from .models import AxNode, Box, Item, Screen
+from .models import MENU_BAR_PT, AxNode, Box, Item, Screen
 from .platform_adapter import desktop
 from .timing import OCR_RECTS, OCR_REGION_PCT, phase
 
@@ -17,11 +17,11 @@ Line = tuple[str, float, Box]
 ECHO_CHARS = 24
 MIN_BOX_OVERLAP = 0.5  # intersection over the smaller box
 MIN_TOKEN_OVERLAP = 0.5
+ICON_HOSTS = {"button", "link"}  # one target each; a tab or a row holds others, such as its close box
 
 # OCR costs about two thirds of a step, and it scales with the amount of text, so the way to make it
 # cheaper is to read less of the screen: the frontmost window's own columns instead of the display,
 # and within them only the blobs of tiles that changed since the previous capture, one crop each.
-MENU_BAR_PT = 40.0  # the strip above every window, which the app's own menus live in
 REGION_MARGIN_PT = 8.0  # slack around the window, for the shadow and a clipped glyph
 THUMB_DIVISOR = 8  # the change detector works on a 1/8 scale grayscale copy
 TILE_PX = 256.0  # tile side in capture pixels
@@ -539,7 +539,8 @@ def ax_items(screen: Screen, budget: int) -> list[Item]:
 
 
 def merge_sources(ocr_items: list[Item], ax_items: list[Item], budget: int = MAX_OPTIONS) -> list[Item]:
-    """One item per thing. An accessibility control that sits on the OCR block naming it replaces both."""
+    """One item per thing. An accessibility control that sits on the OCR block naming it replaces both,
+    and a button or link stands for the symbol OCR read off its icon."""
     return [it for it, _ in merge_with_origins(ocr_items, ax_items, budget)]
 
 
@@ -566,10 +567,20 @@ def merge_with_origins(ocr_items: list[Item], ax_items: list[Item], budget: int 
         taken.add(best)
         text = control.text if len(control.text) >= len(block.text) else block.text
         merged.append((replace(block, text=text, role=control.role, source="ax+ocr"), origin))
-    merged += [(block, None) for i, block in enumerate(ocr_items) if i not in taken]
+    merged += [(block, None) for i, block in enumerate(ocr_items) if i not in taken and not is_icon(block, ax_items)]
     kept = [merged[i] for i in kept_by_budget([it for it, _ in merged], budget)]
     order = reading_order([it for it, _ in kept])
     return [(replace(kept[j][0], index=i), kept[j][1]) for i, j in enumerate(order)]
+
+
+def is_icon(block: Item, controls: list[Item]) -> bool:
+    """An OCR block with no letter or digit, centered on a button or link: its icon, read as a stray
+    symbol ('←' on Back, '☆' on the bookmark star, '+' on New Tab). The control already offers that
+    target under its name, and a second option for the same click only splits the vote."""
+    if any(ch.isalnum() for ch in block.text):
+        return False
+    cx, cy = block.center
+    return any(c.role in ICON_HOSTS and c.x1 <= cx <= c.x2 and c.y1 <= cy <= c.y2 for c in controls)
 
 
 def box_overlap(a: Item, b: Item) -> float:
