@@ -17,7 +17,7 @@ scripts/osworld run-jev chrome/<task id> --ocr rapidocr  # one OSWorld 1.0 task 
 scripts/osworld run-jev chrome/<id> chrome/<id> --ocr rapidocr   # several, one after another
 scripts/osworld run-jev chrome/<id> chrome/<id> chrome/<id> --ocr rapidocr --envs 3   # three VMs side by side
 scripts/osworld run-luna chrome/<task id>                # the same with OSWorld's GPT agent on Luna
-scripts/osworld results                                  # each task's score, steps, time, and tokens
+scripts/osworld results                                  # each task's score, steps, time, and tokens, then each agent's means
 ```
 
 `setup` is the only step between a fresh clone and a run. It fetches OSWorld-V2 at the commit
@@ -55,7 +55,10 @@ is inside, as `jev/`, so `clicker --image` replays any step; its `run.json` hold
 model and the OCR backend, provider, and architecture the run used, and `results` shows them, as
 it shows Luna's tokens from `usage.json`, reasoning tokens among them, with its model time and
 reasoning effort. jev reads `screenshot_a11y_tree` observations and Luna the GPT script's default,
-`screenshot`, so compare their times with that in mind. OSWorld's runner skips a task that already
+`screenshot`, so compare their times with that in mind. After the tasks, `results` sums up each
+agent: its means over the tasks it solved and, apart, over those it failed (a score below 1), since
+a run stuck until the step limit skews a mean over both, and the median time a failed task took to
+end. A task with no score is listed there, not counted. OSWorld's runner skips a task that already
 has a result, so a rerun first moves the earlier one to `results/archive/<time>/`;
 `scripts/osworld-gcp` moves its local copy aside the same way before a run, so a pull never mixes
 two runs' files.

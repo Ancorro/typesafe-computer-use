@@ -6,7 +6,7 @@
 #   scripts/osworld run-jev TASK... --ocr OCR    run tasks with jev, reading the screen with the OCR backend named
 #   scripts/osworld run-luna TASK...             run the same tasks with OSWorld's GPT agent and gpt-6-luna
 #                                                either run takes --envs N: N task VMs side by side
-#   scripts/osworld results [FOLDER]             each task's score, steps, and time, and jev's tokens (FOLDER: results/)
+#   scripts/osworld results [FOLDER]             each task's score, steps, time, and tokens, then each agent's means (FOLDER: results/)
 #
 # A task is DOMAIN/ID: chrome/<id> names OSWorld 1.0's evaluation_examples/examples/chrome/<id>.json,
 # and tasks/<id> a 2.0 task that `setup --v2-tasks` downloaded. Several tasks run one after another,
