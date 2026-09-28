@@ -6,7 +6,7 @@ from conftest import busy_page
 from PIL import Image, ImageDraw
 
 from typesafe_computer_use import perception
-from typesafe_computer_use.models import AxNode, Field, Item, Screen
+from typesafe_computer_use.models import AxNode, Field, Item, Popup, Screen
 from typesafe_computer_use.perception import (
     drawn,
     goal_echoes,
@@ -213,6 +213,18 @@ def test_perceive_offers_a_hidden_control_off_the_list(monkeypatch):
     items = perception.perceive(screen, 255, "goal")
     assert [it.text for it in items] == ["Title"]
     assert screen.offscreen == [hidden]
+
+
+def test_perceive_says_which_items_are_under_a_popup_by_their_final_index(monkeypatch):
+    bubble = Popup("Restore pages?", 200.0, 0.0, 200.0, 100.0)
+    shown = control(20, 20, 101, 31, "Title")
+    under = replace(control(250, 20, 101, 31, "Organise"), covered_by=bubble)
+    monkeypatch.setattr(desktop, "actionable_elements", lambda pid, w, h: ([under, shown], [], False))
+    monkeypatch.setattr(perception, "ocr", lambda *args: [])
+    screen = Screen(image=busy_page((400, 200)), scale=1.0, app="Google Chrome", field=None, url=None, pid=7)
+    items = perception.perceive(screen, 255, "goal")
+    assert [it.text for it in items] == ["Title", "Organise"]  # renumbered in reading order
+    assert screen.covered == {1: bubble}
 
 
 # ----- the focused field's own text ----------------------------------------------------------

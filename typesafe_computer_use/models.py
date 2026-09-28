@@ -150,7 +150,8 @@ class AxNode:
     """One actionable accessibility element, in screen points.
 
     `ref` is the element itself, the handle an action is sent to. It is opaque here and
-    stays out of equality and repr so a node compares as the facts it reports.
+    stays out of equality and repr so a node compares as the facts it reports. `covered_by` is the
+    popup in front of it, when a click on its center would land on that popup instead.
     """
 
     role: str
@@ -161,10 +162,36 @@ class AxNode:
     h: float
     pressable: bool
     ref: object | None = field(default=None, compare=False, repr=False)
+    covered_by: Popup | None = None
 
     @property
     def role_word(self) -> str:
         return ROLE_WORDS.get(self.role, "other")
+
+
+@dataclass(frozen=True)
+class Popup:
+    """A window in front of the page, in screen points: a bubble, a menu, or a dialog.
+
+    A click on the page under it lands on it instead, so what it covers is reached by closing it
+    first. `close` is its own close button, when it has one, and never any of its other buttons:
+    the other button on Chrome's "Restore pages?" bubble restores the last session's tabs.
+    """
+
+    name: str
+    x: float
+    y: float
+    w: float
+    h: float
+    close: AxNode | None = None
+
+    @property
+    def title(self) -> str:
+        """How a line of text names it: its name quoted, or what it is when it has none."""
+        return repr(self.name) if self.name else "a popup"
+
+    def holds(self, point: tuple[float, float]) -> bool:
+        return self.x <= point[0] < self.x + self.w and self.y <= point[1] < self.y + self.h
 
 
 @dataclass(frozen=True)
@@ -214,6 +241,7 @@ class Screen:
     window: tuple[float, float, float, float] | None = None  # frontmost window, x/y/w/h in points; None in replay
     ax_refs: dict[int, object] = field(default_factory=dict)  # item index -> accessibility element, when it has one
     offscreen: list[AxNode] = field(default_factory=list)  # labelled controls the app exposes but does not show
+    covered: dict[int, Popup] = field(default_factory=dict)  # item index -> the popup a click on it would land on
 
     @property
     def size_pt(self) -> tuple[float, float]:

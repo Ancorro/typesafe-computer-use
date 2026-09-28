@@ -1810,3 +1810,40 @@ def test_l56_a_name_the_writer_submits_is_typed_and_saved_in_one_step(monkeypatc
     assert state.history == ["typed 'Favorites' into 'Name' via accessibility and pressed Return"]
     assert world.log == ["type:Favorites", "enter"]
     assert state.calls.count == {"classifier": 2, "writer": 2}  # two decisions and no check; the name and the answer
+
+
+def test_l57_an_item_under_a_popup_is_reached_by_closing_the_popup_in_the_same_step(monkeypatch, tmp_path):
+    """OSWorld's chrome/2ad9387a: Chrome's "Restore pages?" bubble sat over the bookmark manager's
+    Organise button. The click meant for Organise closed the bubble, the loop saw no menu, and two
+    steps went to finding out. Now the bubble is closed first, by its Close button, and Organise is
+    clicked in the same step. Its Restore button, which reopens the last session, is never pressed."""
+    manager = "chrome://bookmarks/"
+    world = World(
+        [
+            Page(
+                name="bubble",
+                items=["Bookmarks", ("Organise", "button"), "Restore pages?", ("Close", "button"), ("Restore", "button")],
+                url=manager,
+                popup="Restore pages?",
+                under_popup=("Organise",),
+                on={"click:Close": "manager", "click:Restore": "restored"},
+            ),
+            Page(name="manager", items=["Bookmarks", ("Organise", "button")], url=manager, on={"click:Organise": "menu"}),
+            Page(name="menu", items=["Bookmarks", "Add new bookmark", "Add new folder"], url=manager),
+            Page(name="restored", items=["Yesterday's tabs"], url="https://example.com/"),
+        ]
+    )
+
+    def policy(state: dict, questions: dict) -> tuple:
+        texts = [it["text"] for it in state["screen_items_in_reading_order"]]
+        return ("done", None) if "Add new folder" in texts else ("click_item", "Organise")
+
+    state = drive(world, policy, goal="make a new folder on the bookmarks bar", monkeypatch=monkeypatch, tmp_path=tmp_path)
+
+    assert state.outcome == "done" and world.page.name == "menu"
+    assert state.history == ["closed 'Restore pages?' then clicked 'Organise'"]
+    assert world.log == ["click:Close", "click:Organise"]
+    (organise,) = [it for it in world.fake.states[0]["screen_items_in_reading_order"] if it["text"] == "Organise"]
+    assert organise["under"] == "'Restore pages?'"
+    assert "under 'Restore pages?'" in world.fake.asked[0]["item"].criteria[str(organise["i"])]
+    assert state.calls.count["classifier"] == 2  # one decision to open the menu, one to stop

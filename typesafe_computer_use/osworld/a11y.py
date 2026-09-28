@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import replace
 
 from ..ax_walk import AX_PRESS, AxAttrs, Frame, walk_actionable
-from ..models import AxNode, Field
+from ..models import AxNode, Field, Popup
 
 # The namespaces of OSWorld's Ubuntu tree: `_accessibility_ns_map["ubuntu"]` in `src/accessibility.py`
 # of xlang-ai/osworld-server at a3cc3f0c64e463f020d1a44780307e9b46cbcab1, which is the
@@ -62,6 +62,8 @@ ROLES = {
     "label": "AXStaticText",
 }
 WINDOW_ROLES = {"frame", "window", "dialog", "alert", "file-chooser"}
+# A popup's own close button, by its whole label: "Close this profile" is no way to close a popup.
+CLOSE_LABELS = {"close", "dismiss"}
 BROWSER_APPS = ("Google Chrome", "Chromium")
 ADDRESS_BAR = "Address and search bar"  # Chromium's accessible name for the omnibox
 LABEL_TEXT_CHARS = 120  # a short text stands in for a missing name, as a short AXValue does on macOS
@@ -246,9 +248,41 @@ def walk(app: ET.Element | None, display_w: float, display_h: float) -> tuple[li
     A control is a node with a control role, or one that answers a click, as a Mac walk keeps
     whatever takes AXPress. But nothing in a VM can be pressed through this tree: no node comes back
     pressable, none carries an element ref, and the off-screen list, which exists only for pressing,
-    stays off and empty.
+    stays off and empty. So a click is the only way to a control, and one under a popup says so.
     """
     if app is None:
         return [], [], False
     found, _offscreen, capped = walk_actionable(app, list, _attrs, _actions, display_w, display_h, offscreen_cap=0)
-    return [replace(node, ref=None, pressable=False) for node in found], [], capped
+    return covered([replace(node, ref=None, pressable=False) for node in found], app), [], capped
+
+
+def covered(nodes: list[AxNode], app: ET.Element) -> list[AxNode]:
+    """The nodes, each control of the page that sits under a popup marked with that popup.
+
+    Chrome draws each bubble, menu, and dialog as a window of its own, which the tree lists beside
+    the browser window: an `alert` ("Restore pages?"), a `dialog` ("Bookmark added"), a nameless
+    `frame` (a menu). The browser windows are the frames with a name. A popup is drawn above the
+    window it belongs to, so a click on a page control whose center lies inside one lands on the
+    popup; where two hold the point, the one listed last, opened last, is on top. A window with no
+    control of its own is not one: Chrome's status bubble, the link address it shows in a corner,
+    moves out of the pointer's way. A popup's controls are known by role and frame, since Chrome
+    lists a popup inside the browser window as well, and the walk keeps only the first copy.
+    """
+    popups = []
+    for window in _windows(app):
+        box = frame(window)
+        if box is None or (window.tag == "frame" and name(window)):
+            continue
+        own = {(ax_role(element.tag), frame(element)) for element in window.iter()}
+        controls = [node for node in nodes if (node.role, (node.x, node.y, node.w, node.h)) in own]
+        if controls:
+            close = next((n for n in controls if n.role == "AXButton" and n.label.strip().lower() in CLOSE_LABELS), None)
+            popups.append((Popup(name(window), *box, close=close), own))
+    out = []
+    for node in nodes:
+        if not any((node.role, (node.x, node.y, node.w, node.h)) in own for _, own in popups):
+            center = (node.x + node.w / 2, node.y + node.h / 2)
+            over = [popup for popup, _ in popups if popup.holds(center)]
+            node = replace(node, covered_by=over[-1] if over else None)
+        out.append(node)
+    return out
