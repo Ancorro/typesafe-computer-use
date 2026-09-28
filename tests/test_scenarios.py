@@ -1775,3 +1775,38 @@ def test_l55_a_new_page_starts_the_count_of_stalls_again(monkeypatch, tmp_path):
     assert world.page.name == "welcome"
     assert [h.outcome for h in state.handoffs] == ["stalled"] * MAX_STALLS  # enough to be stuck, were they on one page
     assert world.log == (["click:Help"] * (MAX_REPEATS + 1) + ["click:Next"]) * 3
+
+
+def test_l56_a_name_the_writer_submits_is_typed_and_saved_in_one_step(monkeypatch, tmp_path):
+    """OSWorld's chrome/2ad9387a typed a new bookmark folder's name in one step and clicked Save in the
+    next, and chrome/2ae9ba84 typed a profile name and never saved it. Return right after the text does
+    both at once. Nothing checks the field after it: the dialog is gone, and the next screen says
+    whether the name took."""
+    manager = "chrome://bookmarks/"
+    world = World(
+        [
+            Page(
+                name="dialog",
+                items=["Add folder", "Name", "Cancel", "Save"],
+                url=manager,
+                field="Name",
+                on={"enter": lambda w: "saved" if w.typed.get("Name") == "Favorites" else None},
+            ),
+            Page(name="saved", items=["Bookmarks bar", "Favorites"], url=manager),
+        ]
+    )
+
+    state = drive(
+        world,
+        scripted(("type_text", None), ("done", None)),
+        goal="make a new folder on the bookmarks bar called Favorites",
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        writer=FakeWriter(text="Favorites", submit=True),
+        noul=0.0,  # a check of the field would fail, and take the name back out
+    )
+
+    assert state.outcome == "done" and world.page.name == "saved"
+    assert state.history == ["typed 'Favorites' into 'Name' via accessibility and pressed Return"]
+    assert world.log == ["type:Favorites", "enter"]
+    assert state.calls.count == {"classifier": 2, "writer": 2}  # two decisions and no check; the name and the answer

@@ -186,6 +186,20 @@ def test_typing_goes_into_the_focused_field_when_no_window_is_active(jev, tmp_pa
     assert run_json(tmp_path)["history"] == ["typed 'Thomas' into 'Name' via keystrokes (verified 0.95)"]
 
 
+def test_a_name_the_writer_submits_goes_out_with_its_return_as_one_action(jev, tmp_path):
+    """OSWorld's chrome/2ae9ba84 typed the profile name and never saved it. Return now follows the
+    name in the same step, and nothing reads the field between them."""
+    tree = NO_ACTIVE_WINDOW.read_text()
+    agent = jev(scripted(("type_text", None)), writer=FakeWriter(text="Thomas", submit=True))
+
+    response, actions = agent.predict("change the Chrome profile name to Thomas", obs(tree))
+    assert actions == [f"{typed('Thomas')}\npyautogui.press('enter')"]
+    assert response == "type_text (0.90)"
+
+    assert agent.predict(GOAL, obs(tree))[1] == ["DONE"]
+    assert run_json(tmp_path)["history"] == ["typed 'Thomas' into 'Name' via keystrokes and pressed Return"]
+
+
 def test_a_wait_is_a_wait_step_and_a_stall_ends_in_done(jev, tmp_path):
     agent = jev(always("wait"))
 

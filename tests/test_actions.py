@@ -8,7 +8,7 @@ from typesafe_computer_use import actions
 from typesafe_computer_use.actions import click_item, fill_field, press_offscreen
 from typesafe_computer_use.models import AxNode, Field, Item, Missed
 from typesafe_computer_use.platform_adapter import desktop
-from typesafe_computer_use.writer import make_writer
+from typesafe_computer_use.writer import Fill, make_writer
 
 
 @pytest.fixture
@@ -253,7 +253,7 @@ def test_failed_verification_restores_original_field_without_touching_new_focus(
     original = field(ref=object(), value="previous query")
     other = field(ref=object(), value="important draft")
     values = {original.ref: "new query", other.ref: other.value}
-    monkeypatch.setattr(actions, "compose_text", lambda *a: "new query")
+    monkeypatch.setattr(actions, "compose_text", lambda *a: Fill("new query"))
     monkeypatch.setattr(actions, "fill_field", lambda *a: "via accessibility")
     monkeypatch.setattr(actions.time, "sleep", lambda *a: None)
     monkeypatch.setattr(desktop, "focused_field", lambda: other)
@@ -266,6 +266,21 @@ def test_failed_verification_restores_original_field_without_touching_new_focus(
 
     assert "restored previous value" in result
     assert values == {original.ref: original.value, other.ref: other.value}
+
+
+def test_text_the_writer_submits_is_followed_by_return_and_left_to_the_next_screen(screen, calls, monkeypatch):
+    """Return usually takes the field away, so nothing reads it afterwards and nothing is restored."""
+    monkeypatch.setattr(desktop, "press", lambda key, command=False: calls.append(("press", key)))
+    monkeypatch.setattr(actions, "compose_text", lambda *a: Fill("Favorites", submit=True))
+    monkeypatch.setattr(actions.time, "sleep", lambda *a: pytest.fail("there is no read to wait for"))
+    monkeypatch.setattr(desktop, "focused_field", lambda: pytest.fail("the field is gone after Return"))
+    monkeypatch.setattr(actions, "verify_typed", lambda *a: pytest.fail("nothing to check the text against"))
+    monkeypatch.setattr(actions, "restore_field", lambda *a: pytest.fail("nothing to restore"))
+
+    result = actions._type_text(None, replace(screen, field=field()), [], context(object()))
+
+    assert result == "typed 'Favorites' into 'Email' via keystrokes and pressed Return"
+    assert calls == [("clear",), ("type", "Favorites"), ("press", "return")]
 
 
 @pytest.mark.parametrize("current", [None, "user edited the value", "prefix new query"])

@@ -154,6 +154,15 @@ def _image_block(image: Image.Image) -> dict:
     return {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
 
 
+@dataclass(frozen=True)
+class Fill:
+    """What goes into the focused field: the exact text, empty when the writer declined, and whether
+    Return follows it."""
+
+    text: str
+    submit: bool = False
+
+
 def compose_text(
     writer: Writer,
     goal: str,
@@ -161,8 +170,10 @@ def compose_text(
     items: list[Item],
     history: list[str],
     guidance: Guidance | None = None,
-) -> str:
-    """The exact string to type into the focused field. Empty means the writer declined."""
+) -> Fill:
+    """The exact string to type into the focused field, and whether to submit it with Return.
+
+    Return never follows text in a text area, where it starts a new line instead."""
     packet = {
         "goal": goal,
         **(guidance.state() if guidance else {}),
@@ -180,13 +191,22 @@ def compose_text(
             "actions, the focused field's label and placeholder, and nearby screen text, and, when "
             "there are any, the step the agent is now working on and what the user said when asked. "
             "Decide the exact string to type. Never invent credentials, passwords, or personal data; for such "
-            "fields, or when the field should not be filled, set fill to false."
+            "fields, or when the field should not be filled, set fill to false. Set submit to true only when "
+            "the goal needs Return pressed right after this text: a name or value it says to create, change, "
+            "or save, or a search it says to run. Otherwise false, as in a form with other fields still to fill."
         ),
         packet=packet,
-        properties={"fill": {"type": "boolean"}, "text": {"type": "string"}, "reason": {"type": "string"}},
+        properties={
+            "fill": {"type": "boolean"},
+            "text": {"type": "string"},
+            "submit": {"type": "boolean"},
+            "reason": {"type": "string"},
+        },
         max_tokens=256,
     )
-    return data["text"].strip() if data["fill"] else ""
+    text = data["text"].strip() if data["fill"] else ""
+    multiline = screen.field is not None and screen.field.role == "AXTextArea"
+    return Fill(text, submit=bool(text) and data["submit"] and not multiline)
 
 
 def valid_url(url: str) -> bool:

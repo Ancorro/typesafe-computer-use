@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import anthropic
@@ -9,9 +10,9 @@ from PIL import Image
 
 from typesafe_computer_use import runner, writer
 from typesafe_computer_use.actions import Context
-from typesafe_computer_use.models import Guidance
+from typesafe_computer_use.models import Field, Guidance
 from typesafe_computer_use.runner import RunConfig, RunState, hand_off, resolve
-from typesafe_computer_use.writer import ANSWER_IMAGE_EDGE, Answer, compose_answer
+from typesafe_computer_use.writer import ANSWER_IMAGE_EDGE, Answer, Fill, compose_answer
 
 GOAL = "find the next upcoming bruno mars concert"
 
@@ -74,7 +75,7 @@ def test_the_answer_request_carries_what_the_run_has_learned_and_offers_both_way
 
 def test_the_typed_text_and_the_proposed_url_are_composed_under_the_guidance(screen):
     guided = Guidance().heard("which artist?", "bruno mars")
-    fake = FakeWriter({"fill": True, "text": "bruno mars", "ok": True, "url": "https://www.brunomars.com"})
+    fake = FakeWriter({"fill": True, "text": "bruno mars", "submit": False, "ok": True, "url": "https://www.brunomars.com"})
 
     writer.compose_text(fake, GOAL, screen, [], [], guided)
     writer.compose_url(fake, GOAL, [], guided)
@@ -83,6 +84,25 @@ def test_the_typed_text_and_the_proposed_url_are_composed_under_the_guidance(scr
         assert json.loads(request["messages"][0]["content"][0]["text"])["user_said"] == [
             {"asked": "which artist?", "replied": "bruno mars"}
         ]
+
+
+@pytest.mark.parametrize(
+    ("role", "reply", "expected"),
+    [
+        ("AXTextField", {"fill": True, "text": " Favorites ", "submit": True}, Fill("Favorites", submit=True)),
+        ("AXTextField", {"fill": True, "text": "Favorites", "submit": False}, Fill("Favorites")),
+        ("AXTextArea", {"fill": True, "text": "Favorites", "submit": True}, Fill("Favorites")),  # Return adds a line there
+        ("AXTextField", {"fill": False, "text": "Favorites", "submit": True}, Fill("")),  # nothing typed, nothing sent
+    ],
+    ids=["submitted", "left", "text-area", "declined"],
+)
+def test_the_writer_says_whether_return_follows_the_text(screen, role, reply, expected):
+    field = Field(role=role, label="Name", placeholder="", value="", x=0, y=0, w=100, h=20)
+    fake = FakeWriter({**reply, "reason": "the goal names the folder"})
+
+    assert writer.compose_text(fake, GOAL, replace(screen, field=field), [], []) == expected
+    schema = fake.requests[0]["output_config"]["format"]["schema"]
+    assert schema["properties"]["submit"] == {"type": "boolean"} and "submit" in schema["required"]
 
 
 def test_the_capture_is_shrunk_to_the_edge_the_model_reads_and_left_intact():
