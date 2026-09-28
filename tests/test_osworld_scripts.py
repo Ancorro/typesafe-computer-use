@@ -280,6 +280,75 @@ def test_a_run_the_machine_stopped_under_brings_back_what_finished():
         assert body.index("restart_if_stopped_under") < body.index("pull_results")
 
 
+def test_a_pull_the_tunnel_drops_is_tried_again(tmp_path):
+    """IAP dropped the pull after run 20260928T184152Z ("rsync: unexpected end of file"), and every
+    one of its ten scored tasks was recorded as no result folder came back."""
+    shims = tmp_path / "bin"
+    shims.mkdir()
+    tries = tmp_path / "tries"
+    (shims / "rsync").write_text(f'#!/bin/sh\necho x >> {tries}\n[ "$(wc -l < {tries})" -ge 3 ]\n')
+    (shims / "rsync").chmod(0o755)
+    source = "\n".join(
+        [one_line(OSWORLD_GCP, name) for name in ("say", "show")]
+        + [function(OSWORLD_GCP, name) for name in ("quote", "cmdline", "run", "pull_results")]
+    )
+    setup = "set -euo pipefail; DRY_RUN=false; INSTANCE=osworld; REMOTE_DIR=/opt/repo; RSYNC=(rsync); sleep() { :; }\n"
+
+    def pull(limit: int) -> subprocess.CompletedProcess:
+        tries.write_text("")
+        return subprocess.run(
+            ["bash", "-c", f'{setup}PULL_TRIES={limit}\n{source}\npull_results && echo pulled || echo "not pulled"'],
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+            env={"PATH": f"{shims}:/usr/bin:/bin", "HOME": str(tmp_path)},
+            timeout=30,
+        )
+
+    out = pull(4)
+    assert out.stdout.strip() == "pulled" and len(tries.read_text().split()) == 3
+    assert "trying again (2 of 4)" in out.stderr
+    out = pull(2)
+    assert out.stdout.strip() == "not pulled" and len(tries.read_text().split()) == 2
+
+
+def test_a_run_whose_results_did_not_come_back_records_no_rows(tmp_path):
+    """Rows saying no task came back would be false: the tasks are scored on the machine. The run
+    says how to record them once pull-results has brought them, and ends as failed."""
+    stubs = (
+        "load() { :; }; start_if_stopped() { :; }; wait_for_machine() { :; }; sync_repo() { :; }\n"
+        "archive_local() { :; }; start_detached() { echo 4242; }; follow() { :; }; restart_if_stopped_under() { :; }\n"
+        'run_status() { echo 0; }; provenance() { echo \'{"run": "r"}\'; }; pull_results() { return 1; }\n'
+        "record() { echo RECORDED; }; run() { :; }; SSH=(gcloud); REMOTE_EXEC=osworld-exec\n"
+    )
+    record_line = re.search(r"^RECORD=\(.*\)$", OSWORLD_GCP.read_text(), re.M)
+    assert record_line, "osworld-gcp has no RECORD"
+    source = "\n".join(
+        [one_line(OSWORLD_GCP, name) for name in ("say", "agent_model")]
+        + [record_line.group(0)]
+        + [function(OSWORLD_GCP, name) for name in ("die", "quote", "cmdline", "run_task")]
+    )
+    out = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"set -euo pipefail; DRY_RUN=false; TASK_PATTERN='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'\n{source}\n{stubs}"
+            'status=0; run_task run-jev chrome/a --ocr rapidocr || status=$?; echo "run_task returned $status"',
+        ],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
+        timeout=30,
+    )
+    assert out.stdout.strip() == "run_task returned 1", out.stderr
+    assert "the run's rows were not recorded" in out.stderr
+    assert re.search(
+        r"python -m typesafe_computer_use\.osworld\.record benchmarks/osworld/\d{8}T\d{6}Z\.jsonl results jev .*chrome/a$",
+        out.stderr,
+        re.M,
+    )
+
+
 def test_pulling_results_starts_a_stopped_machine(tmp_path):
     printed = dry_run(tmp_path, "pull-results")
     assert printed.index("instances start osworld") < printed.index("rsync")
