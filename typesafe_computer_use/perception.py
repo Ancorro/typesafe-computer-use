@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import string
 from dataclasses import replace
 from pathlib import Path
 
@@ -17,7 +18,9 @@ Line = tuple[str, float, Box]
 ECHO_CHARS = 24
 MIN_BOX_OVERLAP = 0.5  # intersection over the smaller box
 MIN_TOKEN_OVERLAP = 0.5
+LABEL_PUNCTUATION = string.punctuation + "…"
 ICON_HOSTS = {"button", "link"}  # one target each; a tab or a row holds others, such as its close box
+VALUE_HOSTS = {"field", "popup"}  # the text drawn inside one is its value
 
 # OCR costs about two thirds of a step, and it scales with the amount of text, so the way to make it
 # cheaper is to read less of the screen: the frontmost window's own columns instead of the display,
@@ -540,18 +543,25 @@ def ax_items(screen: Screen, budget: int) -> list[Item]:
 
 def merge_sources(ocr_items: list[Item], ax_items: list[Item], budget: int = MAX_OPTIONS) -> list[Item]:
     """One item per thing. An accessibility control that sits on the OCR block naming it replaces both,
-    and a button or link stands for the symbol OCR read off its icon."""
+    so does one whose label is drawn beside it on its row, and a button or link stands for the symbol
+    OCR read off its icon."""
     return [it for it, _ in merge_with_origins(ocr_items, ax_items, budget)]
 
 
 def merge_with_origins(ocr_items: list[Item], ax_items: list[Item], budget: int = MAX_OPTIONS) -> list[tuple[Item, int | None]]:
     """The merge, each item paired with the position of the control it came from, or None for plain text.
 
+    A control takes the OCR block that sits on it and names it, and the item keeps the block's box.
+    A control that no block does takes the nearest block on its row that reads as its label, and
+    keeps its own box, since the click belongs on the control: a settings row whose link is the
+    arrow at its end, a dropdown with its name to its left. Such a field or dropdown also takes the
+    text drawn inside it, its value, as 'Folder: All Bookmarks'. Two items for one control split the vote.
+
     The pairing survives the budget cut and the renumbering, which is the only way back from a
     final item to the accessibility element behind it.
     """
     taken: set[int] = set()
-    merged: list[tuple[Item, int | None]] = []
+    on: dict[int, int] = {}  # control position -> the block on it
     for origin, control in enumerate(ax_items):
         best, best_overlap = None, MIN_BOX_OVERLAP
         for i, block in enumerate(ocr_items):
@@ -560,13 +570,39 @@ def merge_with_origins(ocr_items: list[Item], ax_items: list[Item], budget: int 
             overlap = box_overlap(control, block)
             if overlap >= best_overlap and texts_match(control.text, block.text):
                 best, best_overlap = i, overlap
-        if best is None:
-            merged.append((control, origin))
+        if best is not None:
+            taken.add(best)
+            on[origin] = best
+    beside: set[int] = set()  # controls whose label was read beside them
+    for _, origin, i in sorted(
+        (row_gap(control, block), origin, i)
+        for origin, control in enumerate(ax_items)
+        if origin not in on
+        for i, block in enumerate(ocr_items)
+        if i not in taken and labels(block, control)
+    ):
+        if origin not in beside and i not in taken:
+            beside.add(origin)
+            taken.add(i)
+    values: dict[int, list[Item]] = {}  # a labelled field or dropdown -> the text it shows
+    for origin in sorted(beside):
+        control = ax_items[origin]
+        if control.role not in VALUE_HOSTS:
             continue
-        block = ocr_items[best]
-        taken.add(best)
-        text = control.text if len(control.text) >= len(block.text) else block.text
-        merged.append((replace(block, text=text, role=control.role, source="ax+ocr"), origin))
+        inside = [i for i, block in enumerate(ocr_items) if i not in taken and contains(control, block)]
+        taken.update(inside)
+        values[origin] = [ocr_items[i] for i in sorted(inside, key=lambda i: ocr_items[i].x1)]
+    merged: list[tuple[Item, int | None]] = []
+    for origin, control in enumerate(ax_items):
+        if origin in on:
+            block = ocr_items[on[origin]]
+            text = control.text if len(control.text) >= len(block.text) else block.text
+            merged.append((replace(block, text=text, role=control.role, source="ax+ocr"), origin))
+        elif origin in beside:
+            shown = " ".join(block.text for block in values.get(origin, []))
+            merged.append((replace(control, text=f"{control.text}: {shown}" if shown else control.text, source="ax+ocr"), origin))
+        else:
+            merged.append((control, origin))
     merged += [(block, None) for i, block in enumerate(ocr_items) if i not in taken and not is_icon(block, ax_items)]
     kept = [merged[i] for i in kept_by_budget([it for it, _ in merged], budget)]
     order = reading_order([it for it, _ in kept])
@@ -579,8 +615,7 @@ def is_icon(block: Item, controls: list[Item]) -> bool:
     target under its name, and a second option for the same click only splits the vote."""
     if any(ch.isalnum() for ch in block.text):
         return False
-    cx, cy = block.center
-    return any(c.role in ICON_HOSTS and c.x1 <= cx <= c.x2 and c.y1 <= cy <= c.y2 for c in controls)
+    return any(c.role in ICON_HOSTS and contains(c, block) for c in controls)
 
 
 def box_overlap(a: Item, b: Item) -> float:
@@ -589,6 +624,34 @@ def box_overlap(a: Item, b: Item) -> float:
     tall = min(a.y2, b.y2) - max(a.y1, b.y1)
     smaller = min((a.x2 - a.x1) * (a.y2 - a.y1), (b.x2 - b.x1) * (b.y2 - b.y1))
     return wide * tall / smaller if wide > 0 and tall > 0 and smaller > 0 else 0.0
+
+
+def labels(block: Item, control: Item) -> bool:
+    """Whether an OCR block on the control's row reads exactly as its label, case and punctuation aside.
+    Exactly, so a line that only mentions the label ('Archive of 2019' beside an 'Archive' button) stays
+    a target of its own."""
+    if not control.y1 <= block.center[1] <= control.y2:
+        return False
+    words = label_words(block.text)
+    return bool(words) and words == label_words(control.text)
+
+
+def label_words(text: str) -> list[str]:
+    """A label's words for comparison: lower case, the punctuation around each dropped, so OCR's
+    'Translate...' reads as the app's 'Translate…'."""
+    stripped = (word.strip(LABEL_PUNCTUATION) for word in text.lower().split())
+    return [word for word in stripped if word]
+
+
+def contains(control: Item, block: Item) -> bool:
+    """Whether the block's center lies inside the control's box."""
+    cx, cy = block.center
+    return control.x1 <= cx <= control.x2 and control.y1 <= cy <= control.y2
+
+
+def row_gap(a: Item, b: Item) -> float:
+    """The horizontal distance between two items, zero when they overlap."""
+    return max(0.0, a.x1 - b.x2, b.x1 - a.x2)
 
 
 def texts_match(a: str, b: str) -> bool:

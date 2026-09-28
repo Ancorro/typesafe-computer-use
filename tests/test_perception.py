@@ -129,6 +129,77 @@ def test_merge_keeps_a_symbol_on_a_tab_or_a_row_and_any_read_with_a_letter_or_di
     assert len(merge_sources(blocks, controls)) == len(blocks) + len(controls)
 
 
+def test_merge_lets_a_control_take_its_label_from_its_row():
+    """A Chrome settings row (chrome/030eeff7 step 4): the link is the arrow at the row's end, and
+    carries the row's text, which OCR reads further left. One item, at the link."""
+    text = "Site settings Controls what information sites can use and show"
+    blocks = [ocr_item(0, text, 712, 511, 1225, 544)]
+    controls = [ax_item(0, text, 1291, 511, 1323, 544, role="link")]
+    (merged,) = merge_sources(blocks, controls)
+    assert (merged.text, merged.role, merged.source) == (text, "link", "ax+ocr")
+    assert (merged.x1, merged.y1, merged.x2, merged.y2) == (1291.0, 511.0, 1323.0, 544.0)  # the control's box
+
+
+def test_a_dropdown_and_the_label_beside_it_are_one_item():
+    """Chrome's bookmark bubble (chrome/7a5a7856 step 3). The Folder dropdown's name is drawn to its
+    left and its value inside it, so the capture offered it three times, and the vote split
+    0.37/0.36/0.26 between them: under 0.4, a stop. As one item it drew 0.96 on replay. 'Name' is not
+    the field's label word for word, 'Bookmark name', so it stays a line of text."""
+    blocks = [
+        ocr_item(0, "Name", 1536, 182, 1574, 191),
+        ocr_item(1, "Folder", 1536, 230, 1575, 241),
+        ocr_item(2, "All Bookmarks", 1602, 230, 1696, 241),
+        ocr_item(3, "Done", 1752, 294, 1788, 304),
+    ]
+    controls = [
+        ax_item(0, "Bookmark name", 1591, 168, 1815, 206, role="field"),
+        ax_item(1, "Folder", 1591, 218, 1815, 256, role="field"),
+        ax_item(2, "Done", 1740, 286, 1800, 312),
+    ]
+    merged = {it.text: it for it in merge_sources(blocks, controls)}
+    assert sorted((it.text, it.role, it.source) for it in merged.values()) == [
+        ("Bookmark name", "field", "ax"),
+        ("Done", "button", "ax+ocr"),
+        ("Folder: All Bookmarks", "field", "ax+ocr"),
+        ("Name", "", "ocr"),
+    ]
+    folder = merged["Folder: All Bookmarks"]
+    assert (folder.x1, folder.y1, folder.x2, folder.y2) == (1591.0, 218.0, 1815.0, 256.0)
+
+
+def test_text_inside_a_field_with_no_label_beside_it_stays_its_own():
+    """A menu drawn over the new tab page's search box (chrome/2ad9387a step 3): the box's frame
+    holds the menu's text, which is a target of its own, not the box's value."""
+    blocks = [ocr_item(0, "Bookmark all tabs...", 1200, 391, 1339, 402)]
+    controls = [ax_item(0, "Search Google or type a URL", 622, 376, 1368, 424, role="field")]
+    assert sorted(it.text for it in merge_sources(blocks, controls)) == ["Bookmark all tabs...", "Search Google or type a URL"]
+
+
+def test_a_label_read_with_other_punctuation_is_the_same_label():
+    blocks = [ocr_item(0, "Translate...", 1571, 600, 1647, 610)]
+    controls = [ax_item(0, "Translate…", 1515, 591, 1920, 620, role="other")]
+    assert [(it.text, it.source) for it in merge_sources(blocks, controls)] == [("Translate…", "ax+ocr")]
+
+
+def test_a_line_that_only_mentions_the_label_stays_a_target_of_its_own():
+    blocks = [ocr_item(0, "Archive of 2019 invoices", 300, 400, 600, 420)]
+    controls = [ax_item(0, "Archive", 1200, 395, 1230, 425)]
+    assert sorted(it.source for it in merge_sources(blocks, controls)) == ["ax", "ocr"]
+
+
+def test_the_same_label_on_other_rows_stays_apart():
+    """Two 'Delete' buttons on two rows, and a 'Delete' heading on a third: three targets."""
+    blocks = [ocr_item(0, "Delete", 100, 100, 160, 120)]
+    controls = [ax_item(0, "Delete", 900, 200, 930, 230), ax_item(1, "Delete", 900, 300, 930, 330)]
+    assert sorted(it.source for it in merge_sources(blocks, controls)) == ["ax", "ax", "ocr"]
+
+
+def test_a_label_on_a_row_goes_to_the_nearest_control_that_carries_it():
+    blocks = [ocr_item(0, "Delete", 700, 205, 760, 225)]
+    controls = [ax_item(0, "Delete", 100, 200, 130, 230), ax_item(1, "Delete", 800, 200, 830, 230)]
+    assert [(it.x1, it.source) for it in merge_sources(blocks, controls)] == [(100.0, "ax"), (800.0, "ax+ocr")]
+
+
 def test_merge_numbers_everything_in_reading_order():
     blocks = [ocr_item(0, "below", 100, 300, 200, 330), ocr_item(1, "right", 800, 100, 900, 130)]
     controls = [ax_item(0, "left", 100, 105, 200, 135)]
