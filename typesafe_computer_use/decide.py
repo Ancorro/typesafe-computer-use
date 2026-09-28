@@ -236,7 +236,8 @@ def decide(
             instructions=(
                 "If clicking an on-screen item is the right move, which item? Items marked with a "
                 "role come from the app's accessibility tree and are real controls; plain items are "
-                "text read from the screen."
+                "text read from the screen. Never pick an item that an action listed as already tried "
+                "on this screen clicked or pressed: each of those led straight back here."
             ),
             criteria=item_criteria(screen, items),
         )

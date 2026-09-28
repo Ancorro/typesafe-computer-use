@@ -1,9 +1,12 @@
+from dataclasses import replace
 from pathlib import Path
 
+import pytest
+from conftest import busy_page
 from PIL import Image, ImageDraw
 
 from typesafe_computer_use import perception
-from typesafe_computer_use.models import AxNode, Item, Screen
+from typesafe_computer_use.models import AxNode, Field, Item, Screen
 from typesafe_computer_use.perception import (
     drawn,
     goal_echoes,
@@ -187,3 +190,41 @@ def test_perceive_offers_a_hidden_control_off_the_list(monkeypatch):
     items = perception.perceive(screen, 255, "goal")
     assert [it.text for it in items] == ["Title"]
     assert screen.offscreen == [hidden]
+
+
+# ----- the focused field's own text ----------------------------------------------------------
+
+# chrome/030eeff7 step 4, just after typing 'Do Not Track' into Chrome's settings search, with the
+# boxes and frames that step recorded. OCR read the box's text, and the magnifier beside it, as one
+# block, and the item question put 0.66 on it.
+SEARCH = Field(role="AXTextField", label="Search settings", placeholder="", value="Do Not Track", x=683, y=167, w=624, h=24)
+
+
+def settings_search(monkeypatch, field: Field | None) -> list[str]:
+    blocks = [
+        ocr_item(0, "Settings", 138, 170, 221, 192, conf=1.0),
+        ocr_item(1, "O、 Do Not Track", 654, 163, 753, 186, conf=0.91),
+        ocr_item(2, "+", 1312, 161, 1338, 196, conf=0.85),
+        ocr_item(3, "Restore pages?", 1620, 170, 1747, 187, conf=1.0),
+    ]
+    nodes = [
+        AxNode(role="AXTextField", label="Search settings", x=683, y=167, w=624, h=24, pressable=False),
+        AxNode(role="AXButton", label="Clear search", x=1307, y=165, w=28, h=28, pressable=False),
+    ]
+    monkeypatch.setattr(desktop, "actionable_elements", lambda pid, w, h: (nodes, [], False))
+    monkeypatch.setattr(perception, "ocr", lambda *args: blocks)
+    screen = Screen(image=busy_page((1920, 1080)), scale=1.0, app="Google Chrome", field=field, url=None, pid=7)
+    return [it.text for it in perception.perceive(screen, 255, "turn on Do Not Track")]
+
+
+def test_the_text_in_the_focused_field_is_the_field_and_not_an_item_of_its_own(monkeypatch):
+    assert sorted(settings_search(monkeypatch, SEARCH)) == ["+", "Clear search", "Restore pages?", "Search settings", "Settings"]
+
+
+@pytest.mark.parametrize(
+    "field",
+    [None, replace(SEARCH, role="AXTextArea"), replace(SEARCH, role="AXButton", label="Ads privacy sub-page back button")],
+    ids=["nothing focused", "a text area", "not a text field"],
+)
+def test_the_same_text_stays_when_that_field_is_not_a_focused_one_line_field(monkeypatch, field):
+    assert "O、 Do Not Track" in settings_search(monkeypatch, field)

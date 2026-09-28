@@ -103,7 +103,7 @@ def perceive(
         nodes = [node for node in nodes if node not in blank]
         hidden = hidden + blank
         controls = to_ax_items(nodes, screen.scale)
-    merged = merge_with_origins(blocks, controls, budget)
+    merged = merge_with_origins([block for block in blocks if not in_field(block, screen)], controls, budget)
     screen.ax_refs.clear()
     screen.ax_refs.update({it.index: nodes[origin].ref for it, origin in merged if origin is not None and nodes[origin].ref})
     items = [it for it, _ in merged]
@@ -498,6 +498,21 @@ def offscreen_controls(nodes: list[AxNode], items: list[Item]) -> list[AxNode]:
         seen.add(key)
         out.append(node)
     return out
+
+
+def in_field(block: Item, screen: Screen) -> bool:
+    """Whether an OCR block sits inside the focused one-line text field: its value, its placeholder,
+    or an icon drawn in it.
+
+    The field is an item already when the app declares it, and its value is in the state. Read again
+    as a block of its own, the text just typed becomes something to click. A text area is left
+    alone: its lines are content, not one value.
+    """
+    field = screen.field
+    if field is None or not field.is_text or field.role == "AXTextArea":
+        return False
+    x, y = screen.to_points(block)
+    return field.x < x < field.x + field.w and field.y < y < field.y + field.h
 
 
 def to_ax_items(nodes: list[AxNode], scale: float) -> list[Item]:

@@ -178,6 +178,7 @@ def focused_field(root: ET.Element | None) -> Field | None:
 
     A focused container can hold the focused control, and a descendant follows its ancestor in
     document order, so the last focused element is the innermost. A password's value is never read.
+    A multi-line entry, a `textarea`, is a text area, as it is on a Mac.
     """
     scope = active_window(root)
     if scope is None:
@@ -190,7 +191,7 @@ def focused_field(root: ET.Element | None) -> Field | None:
     element = focused[-1]
     x, y, w, h = frame(element) or (0.0, 0.0, 0.0, 0.0)
     return Field(
-        role=ax_role(element.tag),
+        role="AXTextArea" if element.tag == "entry" and has_state(element, "multi_line") else ax_role(element.tag),
         label=name(element),
         placeholder=placeholder(element),
         value="" if element.tag == "password-text" else text(element),
