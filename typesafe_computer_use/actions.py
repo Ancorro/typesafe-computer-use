@@ -150,17 +150,27 @@ def _type_email(decision, screen: Screen, items, ctx: Context) -> str:
 
 
 def _type_text(decision, screen: Screen, items, ctx: Context) -> str:
+    """Fill the focused field with the writer's text, and check it, or submit it with Return.
+
+    Text the writer submits is not checked: Return usually takes the field away (a dialog closes, a
+    search runs), so a read after it no longer shows the field, and a read before it would split
+    the keystrokes and the Return into two OSWorld steps. The next screen says whether it took.
+    """
     if not (screen.field and screen.field.is_text):
         return "type_text refused: no text field is focused"
     if ctx.writer is None:
         return "type_text refused: no writer available"
     try:
-        text = compose_text(ctx.writer, ctx.goal, screen, items, ctx.history, ctx.guidance)
+        fill = compose_text(ctx.writer, ctx.goal, screen, items, ctx.history, ctx.guidance)
     except WriterError as e:
         return f"type_text refused: the writer failed ({e})"
+    text = fill.text
     if not text:
         return "type_text refused: writer declined to fill this field"
     how = fill_field(screen.field, text)
+    if fill.submit:
+        desktop.press("return")
+        return f"typed {text!r} into {screen.field.label!r} {how} and pressed Return"
     time.sleep(0.3)
     p = verify_typed(ctx.typesafe, ctx.goal, screen.field, text, desktop.focused_field())
     if p < VERIFY_THRESHOLD:

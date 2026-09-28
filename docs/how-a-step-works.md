@@ -120,7 +120,7 @@ on the app, and the node and time caps bind first on a big tree: Notes and Chrom
 | `click_item` | press the element through the accessibility tree when the item came from it, so the press lands on the control rather than on whatever covers it; a mouse click at the center of the box otherwise, and as the fallback when the press is refused |
 | `press_offscreen` | `AXPress` a labelled control the app exposes but does not show, chosen from the off-screen list; offered only when that list is not empty, and a refusal counts as a no-op since there is no pixel to fall back on |
 | `use_browser` | go to the browser, showing the website the `site` answer names: `none` brings it forward on the page already open there, a `SITES` catalog key opens that URL through AppleScript `open location`, and `other` opens a URL the writer proposes |
-| `type_text` | the writer composes the string; it is set on the focused element through the accessibility tree, with keystrokes as the fallback when the value does not read back, and a TypeSafe Noul then checks the field's value |
+| `type_text` | the writer composes the string; it is set on the focused element through the accessibility tree, with keystrokes as the fallback when the value does not read back, and a TypeSafe Noul then checks the field's value; text the writer submits gets Return at once instead, and the next screen is the check |
 | `type_email` | fills in `$CLICKER_EMAIL` the same way; refused unless a text field is focused |
 | `press_enter`, `press_escape` | keyboard |
 | `go_back` | Cmd-[, the browser's Back, when the last click led somewhere unhelpful |
@@ -135,7 +135,7 @@ small packet and a structured reply. Each packet also carries the current focus 
 the user said, once there are any:
 
 - **`type_text`** receives the goal, recent actions, the focused field's label and
-  placeholder, and the OCR lines near the field. It returns `{fill, text}`. Credential
+  placeholder, and the OCR lines near the field. It returns `{fill, text, submit}`. Credential
   fields come back `fill: false` and nothing is typed. The text is set as the field's
   value where the element accepts one; otherwise the field is emptied and the text
   typed, since keystrokes land after whatever it already holds. After typing, a Noul
@@ -144,6 +144,10 @@ the user said, once there are any:
   exactly the text just typed. When the element refuses the value, is gone, or holds
   something else by then, the unverified text stays in the field and the history line
   says so. Recovery never presses keys: the focus may have moved to another field.
+  `submit` is for a name or value the goal says to create, rename, change, or save, or a
+  search it says to run. Then Return follows the text and nothing checks the field, since Return
+  usually takes it away; the next screen shows whether it took. A text area never gets
+  Return: there it starts a new line.
 - **`use_browser`** with `site: other` receives the goal and returns `{ok, url}`.
   Code rejects anything that is not a clean https URL with a hostname.
 - **The answer**, each time the classifier stops. It receives the goal, every action

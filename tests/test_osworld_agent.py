@@ -35,6 +35,11 @@ CLICK_GMAIL = "pyautogui.click(1660, 146)"  # the center of the Gmail link's fra
 CLEAR = "pyautogui.hotkey('ctrl', 'a'); pyautogui.press('delete')"
 
 
+def typed(text: str) -> str:
+    """The one action that empties the focused field and types `text` into it."""
+    return f"{CLEAR}\npyautogui.write({text!r}, interval=0.02)"
+
+
 def png(size: tuple[int, int] = DISPLAY) -> bytes:
     out = BytesIO()
     busy_page(size).save(out, format="PNG")  # drawn under every control, so the tree's controls all count
@@ -149,11 +154,11 @@ def test_a_missing_tree_saves_nothing_but_still_counts(tmp_path):
     assert sorted(path.name for path in tmp_path.iterdir()) == ["obs-001-a11y.xml"]
 
 
-def test_typing_and_its_check_split_into_two_steps_at_the_read(jev, tmp_path):
+def test_typing_is_one_action_and_its_check_reads_the_step_after_it(jev, tmp_path):
     agent = jev(scripted(("type_text", None)), writer=FakeWriter(text="hello world"))
 
     response, actions = agent.predict(GOAL, obs())
-    assert actions == [CLEAR, "pyautogui.write('hello world', interval=0.02)"]
+    assert actions == [typed("hello world")], "emptying the field and typing are one OSWorld step"
     assert response == "type_text (0.90)"
 
     # The check after typing reads this observation, and so does the next step's capture.
@@ -174,11 +179,25 @@ def test_typing_goes_into_the_focused_field_when_no_window_is_active(jev, tmp_pa
     agent = jev(scripted(("type_text", None)), writer=FakeWriter(text="Thomas"))
 
     response, actions = agent.predict("change the Chrome profile name to Thomas", obs(tree))
-    assert actions == [CLEAR, "pyautogui.write('Thomas', interval=0.02)"]
+    assert actions == [typed("Thomas")]
     assert response == "type_text (0.90)"
 
     assert agent.predict(GOAL, obs(tree.replace(">Person 1</entry>", ">Thomas</entry>")))[1] == ["DONE"]
     assert run_json(tmp_path)["history"] == ["typed 'Thomas' into 'Name' via keystrokes (verified 0.95)"]
+
+
+def test_a_name_the_writer_submits_goes_out_with_its_return_as_one_action(jev, tmp_path):
+    """OSWorld's chrome/2ae9ba84 typed the profile name and never saved it. Return now follows the
+    name in the same step, and nothing reads the field between them."""
+    tree = NO_ACTIVE_WINDOW.read_text()
+    agent = jev(scripted(("type_text", None)), writer=FakeWriter(text="Thomas", submit=True))
+
+    response, actions = agent.predict("change the Chrome profile name to Thomas", obs(tree))
+    assert actions == [f"{typed('Thomas')}\npyautogui.press('enter')"]
+    assert response == "type_text (0.90)"
+
+    assert agent.predict(GOAL, obs(tree))[1] == ["DONE"]
+    assert run_json(tmp_path)["history"] == ["typed 'Thomas' into 'Name' via keystrokes and pressed Return"]
 
 
 def test_a_wait_is_a_wait_step_and_a_stall_ends_in_done(jev, tmp_path):
@@ -339,7 +358,7 @@ def test_reads_before_input_use_the_obs_in_hand_and_the_first_read_after_input_e
     desktop.press("return")
     assert desktop.screenshot().size == DISPLAY
 
-    assert handed == [[CLICK_GMAIL, "pyautogui.press('enter')"]]
+    assert handed == [[f"{CLICK_GMAIL}\npyautogui.press('enter')"]], "the inputs between two reads are one action"
     assert desktop.browser_url("Google Chrome") == "example.com/next"
     assert len(handed) == 1 and desktop.actions == []
 
@@ -352,7 +371,8 @@ def test_keys_map_onto_pyautogui():
     desktop.press("a", command=True)
     desktop.press("tab")
     desktop.press("delete")
-    assert desktop.actions == [
+    (code,) = desktop.actions
+    assert code.splitlines() == [
         "pyautogui.press('enter')",
         "pyautogui.press('esc')",
         "pyautogui.hotkey('alt', 'left')",
@@ -398,14 +418,14 @@ def test_text_goes_in_only_as_a_string_literal():
     desktop.open_url("Google Chrome", hostile)
 
     allowed = {"pyautogui.write", "pyautogui.press", "pyautogui.hotkey", "subprocess.run", "subprocess.Popen", "time.sleep"}
-    for code in desktop.actions:
-        calls = [node for node in ast.walk(ast.parse(PREFIX + code)) if isinstance(node, ast.Call)]
-        assert {ast.unparse(call.func) for call in calls} <= allowed
-        written = [call.args[0].value for call in calls if ast.unparse(call.func) == "pyautogui.write"]
-        assert written == [hostile]
-    assert in_fake_vm(desktop.actions[0], window=True) == [("write", hostile)]
-    assert ("write", hostile) in in_fake_vm(desktop.actions[1], window=True)
-    assert in_fake_vm(desktop.actions[1], window=False)[-1] == ("Popen", ["google-chrome", hostile], DETACHED)
+    (code,) = desktop.actions
+    calls = [node for node in ast.walk(ast.parse(PREFIX + code)) if isinstance(node, ast.Call)]
+    assert {ast.unparse(call.func) for call in calls} <= allowed
+    written = [call.args[0].value for call in calls if ast.unparse(call.func) == "pyautogui.write"]
+    assert written == [hostile, hostile]
+    assert in_fake_vm(code, window=True)[0] == ("write", hostile)
+    assert in_fake_vm(code, window=True).count(("write", hostile)) == 2
+    assert in_fake_vm(code, window=False)[-1] == ("Popen", ["google-chrome", hostile], DETACHED)
 
 
 def test_open_url_types_into_the_raised_browser_or_starts_it_on_the_url():
@@ -440,15 +460,33 @@ def test_the_other_inputs_and_waits():
     desktop.scroll(-10)
     desktop.sleep_watching(0)
     desktop.sleep_watching(3.0)
+    desktop.press("return")
 
     assert desktop.actions == [
-        "pyautogui.click(12, 100)",
-        CLEAR,
-        "pyautogui.scroll(-10, x=995, y=554)",  # over the active window's center
-        "WAIT",
+        "\n".join(
+            [
+                "pyautogui.click(12, 100)",
+                CLEAR,
+                "pyautogui.scroll(-10, x=995, y=554)",  # over the active window's center
+            ]
+        ),
+        "WAIT",  # an action of its own: OSWorld knows it only that way
+        "pyautogui.press('enter')",  # input after a wait is not folded into what came before it
     ]
-    for code in desktop.actions[:3]:
+    for code in (desktop.actions[0], desktop.actions[2]):
         ast.parse(PREFIX + code)
+
+
+def test_input_after_the_browsers_code_runs_whichever_way_it_branched():
+    """The browser's code ends in an `else:` block, so what follows it in the step starts a line of
+    its own rather than joining the block's last line."""
+    desktop = over(obs())
+    desktop.activate("Google Chrome")
+    desktop.press("escape")
+    (code,) = desktop.actions
+    raise_it = ("run", ["wmctrl", "-xa", "google-chrome"], {})
+    assert in_fake_vm(code, window=True) == [raise_it, ("sleep", 0.5), ("press", "esc")]
+    assert in_fake_vm(code, window=False) == [raise_it, ("Popen", ["google-chrome"], DETACHED), ("press", "esc")]
 
 
 def test_with_no_tree_nothing_is_known_but_the_screenshot_and_ocr():
