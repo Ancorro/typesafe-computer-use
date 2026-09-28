@@ -120,7 +120,7 @@ scripts/osworld-gcp run-luna chrome/<id>                  # the same with OSWorl
 scripts/osworld-gcp watch                                 # during a run: the task VM's screen, in a browser
 scripts/osworld-gcp status                                # running or stopped, and since when
 scripts/osworld-gcp stop                                  # stop now; the disk stays
-scripts/osworld-gcp pull-results                          # copy every result back, after an interrupted run
+scripts/osworld-gcp pull-results                          # copy every result back, after an interrupted run; starts the machine
 scripts/osworld-gcp ssh [-- COMMAND]                      # a shell on the machine, or one command
 scripts/osworld-gcp down                                  # destroy everything infra/gcp made
 ```
@@ -161,7 +161,9 @@ Three guards keep a forgotten machine from running up a bill, all on by default:
 | budget | email alerts to the billing account's administrators at 50, 90, and 100 percent of a monthly budget on this machine's cost | `billing_account` (empty: no budget), `budget_usd` (50) |
 
 The machine is also Spot by default (`spot = true`): Google may stop it at any time, which costs
-only a rerun of the task. Every resource that takes labels carries `app = "typesafe-computer-use"`
+only a rerun of the tasks that had not finished. A run the machine stops under ends at once: the
+script starts the machine again, brings back the tasks that finished, and records them, and a task
+that did not finish has no score in its row. Every resource that takes labels carries `app = "typesafe-computer-use"`
 and `purpose = "osworld"`, so a shared project can find and bill them.
 
 Cost, for the default `n2-standard-8` (check current prices for your region): about $0.17 an hour

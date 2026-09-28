@@ -207,3 +207,79 @@ def test_the_cloud_run_needs_a_task(tmp_path):
     with pytest.raises(subprocess.CalledProcessError) as failed:
         dry_run(tmp_path, "run-jev", "--ocr", "rapidocr")
     assert "usage: scripts/osworld-gcp run-jev DOMAIN/ID... --ocr OCR" in failed.value.stderr
+
+
+def one_line(script: Path, name: str) -> str:
+    """A shell function written on one line, such as `say() { ...; }`."""
+    match = re.search(rf"^{name}\(\) {{ .* }}$", script.read_text(), re.M)
+    assert match, f"{script.name} has no one-line {name}()"
+    return match.group(0)
+
+
+def stopped_under_run() -> str:
+    match = re.search(r"^STOPPED_UNDER_RUN=(\d+)", OSWORLD_GCP.read_text(), re.M)
+    assert match, "osworld-gcp has no STOPPED_UNDER_RUN"
+    return match.group(1)
+
+
+def follow_with(tmp_path: Path, machine: str) -> subprocess.CompletedProcess:
+    """follow() alone, against a machine SSH cannot reach, which Compute Engine describes as `machine`.
+
+    An empty `machine` is a describe that fails too, as it does with no network here.
+    """
+    shims = tmp_path / "bin"
+    shims.mkdir()
+    describe = f"echo {machine}" if machine else "echo 'network unreachable' >&2; exit 1"
+    (shims / "gcloud").write_text(
+        f'#!/bin/sh\ncase "$*" in\n  *"instances describe"*) {describe} ;;\n  *) echo "connection timed out" >&2; exit 255 ;;\nesac\n'
+    )
+    (shims / "gcloud").chmod(0o755)
+    source = "\n".join(
+        [one_line(OSWORLD_GCP, name) for name in ("say", "show")]
+        + [function(OSWORLD_GCP, name) for name in ("die", "quote", "cmdline", "query", "machine_status", "alive", "follow")]
+    )
+    setup = (
+        "set -euo pipefail; DRY_RUN=false; INSTANCE=osworld; GC=(--project p --zone z); SSH=(gcloud compute ssh osworld)\n"
+        "REMOTE_USER=osworld; REMOTE_DIR=/opt/repo; RUNS_DIR=.osworld/runs; KEEPALIVE=(); RECONNECTS=0\n"
+        f"STOPPED_UNDER_RUN={stopped_under_run()}\n"
+    )
+    return subprocess.run(
+        ["bash", "-c", f'{setup}{source}\nstatus=0; follow run1 4242 || status=$?; echo "follow returned $status"'],
+        capture_output=True,
+        text=True,
+        env={"PATH": f"{shims}:/usr/bin:/bin", "HOME": str(tmp_path)},
+        timeout=30,
+    )
+
+
+@pytest.mark.parametrize("machine", ["TERMINATED", "STOPPING", "SUSPENDED"])
+def test_a_machine_stopped_under_the_run_ends_the_following_at_once(tmp_path, machine):
+    """Google stopped the Spot machine nine minutes into run 20260928T175847Z, and the run with it.
+    A stopped machine cannot be reached, which the follower took for a dropped connection: it tried
+    again for twenty minutes, then gave up without bringing back the tasks that had finished."""
+    out = follow_with(tmp_path, machine)
+    assert out.stdout.strip() == f"follow returned {stopped_under_run()}"
+    assert "the machine stopped during the run" in out.stderr
+    assert "reconnecting" not in out.stderr and "lost the run's output" not in out.stderr
+
+
+@pytest.mark.parametrize("machine", ["RUNNING", ""], ids=["running", "describe fails too"])
+def test_a_machine_that_is_up_or_unknown_is_reconnected_to(tmp_path, machine):
+    """A running machine that does not answer, or no answer about it at all, is a dropped connection."""
+    out = follow_with(tmp_path, machine)
+    assert out.returncode == 1 and "lost the run's output 0 times" in out.stderr
+    assert "the machine stopped during the run" not in out.stderr
+
+
+def test_a_run_the_machine_stopped_under_brings_back_what_finished():
+    """run-jev and attach start the machine again after such a run, before they pull its results."""
+    assert "start_if_stopped" in function(OSWORLD_GCP, "restart_if_stopped_under")
+    attach = re.search(r"^  attach\)\n.*?;;\n", OSWORLD_GCP.read_text(), re.S | re.M)
+    assert attach, "osworld-gcp has no attach command"
+    for body in (function(OSWORLD_GCP, "run_task"), attach.group(0)):
+        assert body.index("restart_if_stopped_under") < body.index("pull_results")
+
+
+def test_pulling_results_starts_a_stopped_machine(tmp_path):
+    printed = dry_run(tmp_path, "pull-results")
+    assert printed.index("instances start osworld") < printed.index("rsync")
