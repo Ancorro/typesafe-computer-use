@@ -13,7 +13,16 @@ import anthropic
 import openai
 from PIL import Image
 
-from .config import answer_model, custom_writer_endpoint, writer_api, writer_base_url, writer_model, writer_vision
+from .config import (
+    answer_model,
+    answer_reasoning,
+    custom_writer_endpoint,
+    writer_api,
+    writer_base_url,
+    writer_model,
+    writer_reasoning,
+    writer_vision,
+)
 from .dates import now_context
 from .models import Guidance, Item, Screen
 from .openai_writer import OpenAIWriter
@@ -68,9 +77,10 @@ def _structured(
     packet: dict,
     properties: dict,
     max_tokens: int,
-    model: str | None = None,
+    answering: bool = False,
     image: Image.Image | None = None,
 ) -> dict:
+    """One JSON reply from the writer's model, or from the answer model when `answering`."""
     schema = {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
     content: list[dict] = [{"type": "text", "text": json.dumps(packet)}]
     if image is not None:
@@ -83,9 +93,14 @@ def _structured(
         # Another endpoint may think by default, out of the same max_tokens: a 200-token call then
         # comes back with no text at all. Anthropic thinks only when asked.
         extra["thinking"] = {"type": "disabled"}
+    if writer_api() == "openai":
+        # An OpenAI model reasons by default, out of max_tokens too; the effort is its own setting.
+        effort = answer_reasoning() if answering else writer_reasoning()
+        if effort:
+            extra["reasoning"] = effort
     try:
         response = writer.messages.create(
-            model=model or writer_model(),
+            model=answer_model() if answering else writer_model(),
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": content}],
@@ -370,7 +385,7 @@ def compose_answer(
             "question": {"type": "string"},
         },
         max_tokens=1024,
-        model=answer_model(),
+        answering=True,
         image=screen.image if writer_vision() else None,
     )
     return Answer(

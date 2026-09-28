@@ -36,8 +36,10 @@ With `OSWORLD_OCR=rapidocr` it installs jev's RapidOCR extra too. `setup --v2-ta
 downloads OSWorld 2.0's tasks, a gated Hugging Face dataset, and needs `HF_TOKEN`; a 2.0 task is
 `tasks/<id>`.
 
-A run reads its keys from `.env`: `TYPESAFE_API_KEY` and the writer's settings for jev,
-`OPENAI_API_KEY` for Luna. `--ocr` is required, since a result depends on the OCR that read the
+A run reads its keys from `.env`: `TYPESAFE_API_KEY` for jev and `OPENAI_API_KEY` for both. jev's
+writer and answer model in OSWorld are Luna too, so a run compares jev with Luna inside it to Luna
+alone: `run-jev` points the `CLICKER_WRITER_*` settings at OpenAI's API and `gpt-6-luna`, with no
+reasoning for the writer's short calls and `low` for the answer model. `.env` overrides any of them. `--ocr` is required, since a result depends on the OCR that read the
 screen: `rapidocr` is the benchmark backend, and `vision` is macOS's own and runs only there.
 `OSWORLD_PROVIDER` picks OSWorld's VM provider, `docker` by default. Both runs keep OSWorld's
 screen recording and its VNC server on, so the VM can be watched live. Every command prints what

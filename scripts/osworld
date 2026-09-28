@@ -42,6 +42,23 @@ LUNA_EFFORT=${OSWORLD_LUNA_EFFORT:-xhigh}
 
 usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 
+# jev's writer and answer model here are Luna, the model it is measured against, so a run compares
+# jev with Luna inside it to Luna alone. The writer's short calls skip reasoning; the answer model,
+# which judges the screen, reasons a little. .env overrides any of these, so every CLICKER_WRITER_*
+# setting must then agree with the model named.
+luna_writer() {
+  [[ -n "${OPENAI_API_KEY:-}" || -n "${CLICKER_WRITER_API_KEY:-}" ]] ||
+    die "jev's writer here is $LUNA_MODEL: set OPENAI_API_KEY (or the CLICKER_WRITER_* settings) in .env"
+  export CLICKER_WRITER_API="${CLICKER_WRITER_API:-openai}"
+  export CLICKER_WRITER_BASE_URL="${CLICKER_WRITER_BASE_URL:-https://api.openai.com/v1}"
+  export CLICKER_WRITER_API_KEY="${CLICKER_WRITER_API_KEY:-${OPENAI_API_KEY:-}}"
+  export CLICKER_WRITER_MODEL="${CLICKER_WRITER_MODEL:-$LUNA_MODEL}"
+  export CLICKER_ANSWER_MODEL="${CLICKER_ANSWER_MODEL:-$LUNA_MODEL}"
+  export CLICKER_WRITER_REASONING="${CLICKER_WRITER_REASONING:-none}"
+  export CLICKER_ANSWER_REASONING="${CLICKER_ANSWER_REASONING:-low}"
+  echo "+ jev's writer: $CLICKER_WRITER_MODEL (reasoning $CLICKER_WRITER_REASONING), answers: $CLICKER_ANSWER_MODEL (reasoning $CLICKER_ANSWER_REASONING)"
+}
+
 die() {
   echo "scripts/osworld: $*" >&2
   exit 2
@@ -270,6 +287,7 @@ run_jev() {
   require_setup
   check_provider
   [[ -n "${TYPESAFE_API_KEY:-}" ]] || die "TYPESAFE_API_KEY is not set (export it or put it in .env)"
+  luna_writer
   # Build the agent once here, as the runner will: a bad OCR backend or writer setting fails now,
   # not after the VM has started.
   echo "+ checking that JevAgent(ocr=$ocr, provider=$PROVIDER) builds"
