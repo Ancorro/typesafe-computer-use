@@ -98,6 +98,17 @@ def test_the_runner_reads_the_aws_image_map_only_for_aws():
     assert guards, "the AWS image map is read only under `if args.provider_name == 'aws'`"
 
 
+def test_the_runner_leaves_the_proxy_off():
+    """OSWorld's proxy needs credentials of its own, and without them no page of a "proxy": true task loads."""
+    (env,) = [
+        node
+        for node in ast.walk(tree(RUNNER))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "DesktopEnv"
+    ]
+    proxy = {k.arg: ast.unparse(k.value) for k in env.keywords}.get("enable_proxy")
+    assert proxy == "False", f"DesktopEnv(enable_proxy={proxy}) in the runner"
+
+
 def test_the_runner_names_the_commit_setup_checks_out():
     header = RUNNER.read_text(encoding="utf-8").split("from __future__", 1)[0]
     assert "scripts/python/run_multienv.py" in header

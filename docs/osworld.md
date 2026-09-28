@@ -22,9 +22,12 @@ scripts/osworld results                                  # each task's score, st
 pinned in `scripts/osworld` into `.osworld/OSWorld-V2`, installs OSWorld's locked dependencies
 with its `full` extra into its own `.venv`, installs jev into that `.venv`, and copies
 `osworld_overlay/` over the checkout: `mm_agents/jev_agent.py`, and
-`scripts/python/run_multienv_jev.py`, OSWorld's generic runner changed only to build `JevAgent`
-and to leave AWS's image map to the AWS provider. Every run copies the overlay again, so an edit to
-it needs no second `setup`.
+`scripts/python/run_multienv_jev.py`, OSWorld's generic runner changed only to build `JevAgent`,
+to leave AWS's image map to the AWS provider, and to leave OSWorld's proxy off. That proxy needs
+credentials of OSWorld's own, and without them every task marked `"proxy": true` loads no page.
+OSWorld's GPT runner, which `run-luna` uses as it ships, turns the proxy on, so until Luna runs with
+it off too, a Luna result on such a task does not compare. Every run copies the overlay again, so
+an edit to it needs no second `setup`.
 With `OSWORLD_OCR=rapidocr` it installs jev's RapidOCR extra too. `setup --v2-tasks` also
 downloads OSWorld 2.0's tasks, a gated Hugging Face dataset, and needs `HF_TOKEN`; a 2.0 task is
 `tasks/<id>`.
