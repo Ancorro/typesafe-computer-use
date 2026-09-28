@@ -27,6 +27,7 @@ from typesafe_computer_use.osworld.desktop import APP_PID, OSWorldDesktop
 from typesafe_computer_use.platform_adapter import current, host
 
 FIXTURE = (Path(__file__).parent / "fixtures" / "osworld" / "ubuntu-chrome.xml").read_text()
+NO_ACTIVE_WINDOW = Path(__file__).parent / "fixtures" / "osworld" / "ubuntu-chrome-no-active-window-captured.xml"
 DISPLAY = (1920, 1080)
 GOAL = "open Gmail"
 STEP_SECONDS = 10.0
@@ -164,6 +165,20 @@ def test_typing_and_its_check_split_into_two_steps_at_the_read(jev, tmp_path):
     assert summary["history"] == ["typed 'hello world' into 'Address and search bar' via keystrokes (verified 0.95)"]
     second = json.loads((tmp_path / "jev" / "step-002-answers.json").read_text())
     assert second["url"] == "hello world"
+
+
+def test_typing_goes_into_the_focused_field_when_no_window_is_active(jev, tmp_path):
+    """OSWorld's chrome/2ae9ba84 answered "type_text refused: no text field is focused" while Chrome's
+    Name field had the focus and no window was marked active, as in this tree from that run."""
+    tree = NO_ACTIVE_WINDOW.read_text()
+    agent = jev(scripted(("type_text", None)), writer=FakeWriter(text="Thomas"))
+
+    response, actions = agent.predict("change the Chrome profile name to Thomas", obs(tree))
+    assert actions == [CLEAR, "pyautogui.write('Thomas', interval=0.02)"]
+    assert response == "type_text (0.90)"
+
+    assert agent.predict(GOAL, obs(tree.replace(">Person 1</entry>", ">Thomas</entry>")))[1] == ["DONE"]
+    assert run_json(tmp_path)["history"] == ["typed 'Thomas' into 'Name' via keystrokes (verified 0.95)"]
 
 
 def test_a_wait_is_a_wait_step_and_a_stall_ends_in_done(jev, tmp_path):

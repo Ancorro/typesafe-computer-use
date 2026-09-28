@@ -235,6 +235,42 @@ def test_the_settings_sidebar_entries_are_controls_each_with_its_own_frame(setti
     assert not any(n.pressable or n.ref is not None for n in found.values())
 
 
+NO_ACTIVE_WINDOW = Path(__file__).parent / "fixtures" / "osworld" / "ubuntu-chrome-no-active-window-captured.xml"
+
+
+@pytest.fixture
+def no_active_window():
+    return a11y.parse(NO_ACTIVE_WINDOW.read_text())
+
+
+def test_with_no_window_active_the_focus_is_the_field_in_the_app_holding_it(no_active_window):
+    """OSWorld's chrome/2ae9ba84: GNOME Shell's window, focused in every tree and after Chrome in this
+    one, passed for the focused field, so jev refused to type into Chrome's focused Name field and
+    clicked it seven more times instead."""
+    assert a11y.active_window(no_active_window) is None
+    assert a11y.name(a11y.active_app(no_active_window)) == "Google Chrome"
+    field = a11y.focused_field(no_active_window)
+    assert (field.role, field.label, field.value) == ("AXTextField", "Name", "Person 1")
+    assert field.is_text
+    assert (field.x, field.y, field.w, field.h) == (717.0, 331.0, 269.0, 17.0)
+
+
+def test_the_shells_focused_window_does_not_make_it_the_active_app_wherever_it_falls(no_active_window):
+    shell = next(app for app in no_active_window if a11y.name(app) == "gnome-shell")
+    no_active_window.remove(shell)
+    no_active_window.insert(0, shell)
+    assert a11y.name(a11y.active_app(no_active_window)) == "Google Chrome"
+    assert a11y.focused_field(no_active_window).label == "Name"
+
+
+def test_with_nothing_else_focused_the_shell_still_holds_the_focus(no_active_window):
+    focused = f"{{{a11y.NS_STATE}}}focused"
+    (name,) = [e for e in no_active_window.iter("entry") if e.get(focused) == "true"]
+    del name.attrib[focused]
+    assert a11y.name(a11y.active_app(no_active_window)) == "gnome-shell"
+    assert a11y.focused_field(no_active_window).role == "window"
+
+
 def test_a_node_that_answers_a_click_is_a_control_and_one_that_only_has_a_default_is_not():
     tree = a11y.parse(
         f'<desktop-frame xmlns:st="{a11y.NS_STATE}" xmlns:cp="{a11y.NS_COMPONENT}" xmlns:act="{a11y.NS_ACTION}">'
