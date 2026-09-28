@@ -152,28 +152,38 @@ def active_window(root: ET.Element | None) -> ET.Element | None:
 
 def active_app(root: ET.Element | None) -> ET.Element | None:
     """The application that owns the active window, or, when no window claims it, the one holding
-    the focus."""
+    the focus.
+
+    GNOME Shell's full-screen window is focused in every tree, whichever app has the keyboard, so a
+    focused control counts before a focused top-level window, wherever its app falls in the tree.
+    """
     if root is None:
         return None
     for app in root:
         if any(has_state(window, "active") for window in _windows(app)):
             return app
     for app in root:
-        if any(has_state(element, "focused") for element in app.iter()):
+        windows = _windows(app)
+        if any(has_state(element, "focused") and element not in windows for element in app.iter()):
+            return app
+    for app in root:
+        if any(has_state(window, "focused") for window in _windows(app)):
             return app
     return None
 
 
 def focused_field(root: ET.Element | None) -> Field | None:
-    """The focused element of the active window (of the whole tree when no window is active).
+    """The focused element of the active window, or, when no window is active, of the application
+    holding the focus. The whole tree is no scope: GNOME Shell's window is focused in every tree.
 
     A focused container can hold the focused control, and a descendant follows its ancestor in
     document order, so the last focused element is the innermost. A password's value is never read.
     """
-    if root is None:
+    scope = active_window(root)
+    if scope is None:
+        scope = active_app(root)
+    if scope is None:
         return None
-    window = active_window(root)
-    scope = root if window is None else window
     focused = [element for element in scope.iter() if has_state(element, "focused")]
     if not focused:
         return None
