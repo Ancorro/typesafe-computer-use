@@ -115,7 +115,7 @@ def test_a_click_decision_becomes_one_pyautogui_click(jev, tmp_path):
     summary = run_json(tmp_path)
     assert summary["outcome"] == "done"
     assert summary["history"][0].startswith("clicked 'Gmail'")
-    assert summary["osworld"] == {"ocr": "fake", "provider": "docker", "architecture": platform.machine()}
+    assert summary["osworld"] == {"ocr": "fake", "provider": "docker", "architecture": platform.machine(), "tree": "osworld"}
     assert (tmp_path / "jev" / "step-001-raw.png").exists(), "jev's usual run folder, so a step replays"
 
 
@@ -244,6 +244,70 @@ def test_with_no_tree_ocr_alone_carries_the_decision(jev, tmp_path):
     first = json.loads((tmp_path / "jev" / "step-001-answers.json").read_text())
     assert (first["app"], first["url"], first["field"]) == ("", None, None)
     assert [it["text"] for it in first["items"]] == ["Sign in"]
+
+
+# ----- the tree jev fetches itself -------------------------------------------------------------
+
+
+class VM:
+    """OSWorld's controller of a VM whose tree is `xml`: the light walk prints it, unless `broken`."""
+
+    def __init__(self, xml: str = FIXTURE, broken: bool = False) -> None:
+        self.xml, self.broken = xml, broken
+        self.walks = self.full_fetches = 0
+
+    def run_python_script(self, script: str, timeout: float = 90) -> dict:
+        self.walks += 1
+        if self.broken:
+            return {"status": "error", "output": "", "error": "ModuleNotFoundError: No module named 'gi'"}
+        return {"status": "success", "output": self.xml, "error": ""}
+
+    def get_accessibility_tree(self) -> str:
+        self.full_fetches += 1
+        return self.xml
+
+
+def test_given_the_controller_jev_fetches_each_observations_tree_itself(jev, tmp_path, monkeypatch):
+    monkeypatch.delenv("JEV_OSWORLD_TREE_CHECK", raising=False)
+    vm = VM()
+    agent = jev(scripted(("click_item", "Gmail")), provider="docker", controller=lambda: vm)
+
+    assert agent.predict(GOAL, obs(tree=None))[1] == [CLICK_GMAIL], "OSWorld sent no tree, and jev had one"
+    assert agent.predict(GOAL, obs(tree=None))[1] == ["DONE"]
+    finish(agent)
+
+    assert (vm.walks, vm.full_fetches) == (2, 0), "one light walk per observation, and no full fetch"
+    osworld = run_json(tmp_path)["osworld"]
+    assert (osworld["tree"], osworld["tree_fetches"], osworld["tree_fallbacks"]) == ("jev-light", 2, 0)
+    assert set(osworld["tree_seconds"]) == {"mean", "max"}
+    second = json.loads((tmp_path / "jev" / "step-002-answers.json").read_text())
+    assert "ocr_ahead" in second["timing"], "the second capture's OCR was read while its tree came"
+
+
+def test_when_the_light_walk_fails_osworlds_fetch_stands_in_and_the_run_says_so(jev, tmp_path, monkeypatch):
+    monkeypatch.delenv("JEV_OSWORLD_TREE_CHECK", raising=False)
+    vm = VM(broken=True)
+    agent = jev(scripted(("click_item", "Gmail")), controller=lambda: vm)
+
+    assert agent.predict(GOAL, obs(tree=None))[1] == [CLICK_GMAIL]
+    assert agent.predict(GOAL, obs(tree=None))[1] == ["DONE"]
+    finish(agent)
+
+    assert vm.full_fetches == 2
+    osworld = run_json(tmp_path)["osworld"]
+    assert (osworld["tree"], osworld["tree_fallbacks"]) == ("jev-light", 2)
+    assert "No module named 'gi'" in osworld["tree_fallback_reasons"][0]
+
+
+def test_a_check_run_is_labelled_as_one_and_records_what_it_found(jev, tmp_path, monkeypatch):
+    monkeypatch.setenv("JEV_OSWORLD_TREE_CHECK", "1")
+    vm = VM()
+    agent = jev(scripted(("done", None)), controller=lambda: vm)
+    agent.predict(GOAL, obs(tree=None))
+    finish(agent)
+    osworld = run_json(tmp_path)["osworld"]
+    assert osworld["tree"] == "jev-light-checked", "its steps also fetched OSWorld's tree, so its times are no benchmark"
+    assert osworld["tree_check"]["compared"] == osworld["tree_check"]["matched"] == 1
 
 
 # ----- the step budget and reset --------------------------------------------------------------
