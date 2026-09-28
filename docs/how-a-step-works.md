@@ -203,9 +203,13 @@ The writer never picks a click: every action is still the classifier's.
 
 The exchange cannot go round on itself. A focus the classifier takes no action under
 leaves the answer it came with standing, without a second reading of the same screen.
-`--handoffs` (10) bounds the trips, three questions bound the asking, and a stop on
-the last step is final. A `done` the writer does not see on the screen is sent back
-like any other stop.
+A focus under which every action led back to a screen the run had seen before it is
+the last: the writer reads the screen the run stopped on and answers, and the run ends
+there. On the OSWorld Chrome runs measured, no run reached its goal after such a focus,
+each focus in the runs that did reach it led to a new screen, and the rounds this cuts
+were two in five of all answer calls. `--handoffs` (10) bounds the trips, three
+questions bound the asking, and a stop on the last step is final. A `done` the writer
+does not see on the screen is sent back like any other stop.
 
 ## Who did the work
 

@@ -63,7 +63,10 @@ class Handoff:
     step: int
     outcome: str  # why the classifier stopped
     focus: str  # what the writer sent it back to do
-    actions: int  # how many actions the run had taken by then, so a focus that led to none can be told
+    # How many actions the run had taken by then, so a focus that led to none can be told. Every
+    # action also adds one screen to `RunState.seen`, so this marks where the screens reached under
+    # the focus begin.
+    actions: int
 
 
 @dataclass
@@ -82,6 +85,7 @@ class RunState:
     answer: Answer | None = None  # the writer's latest; the last one is the run's answer
     guidance: Guidance = field(default_factory=Guidance)  # the writer's focus and the user's replies, as they stand
     handoffs: list[Handoff] = field(default_factory=list)
+    focus_screen: Signature | None = None  # the screen the writer read when it last handed the run back
     calls: Calls = field(default_factory=Calls)  # requests to each model, over the whole run
 
 
@@ -151,9 +155,9 @@ def hand_off(cfg: RunConfig, ctx: Context, state: RunState, step: int, log: Log)
     reads the screen and answers for the user either way. When the goal is not reached it may also
     name a focus, which sends the classifier back to work with `state.guidance` saying what on, or
     a question, which goes to the user first; the writer then reads the same screen again with the
-    reply. Each reply is new information and each focus must lead to an action, so the exchange
-    cannot go round on itself: a focus the classifier could not act on leaves the answer that came
-    with it standing.
+    reply. Each reply is new information and each focus must lead somewhere, so the exchange cannot
+    go round on itself: a focus the classifier could not act on leaves the answer that came with it
+    standing, and one whose actions all led back to screens already seen is the last focus given.
     """
     stopped = STOPPED.get(state.outcome)
     if stopped is None:
@@ -166,6 +170,9 @@ def hand_off(cfg: RunConfig, ctx: Context, state: RunState, step: int, log: Log)
         return False
 
     may_resume = step < cfg.steps and len(state.handoffs) < cfg.handoffs
+    if may_resume and went_nowhere(state, signature(*stopped_on(cfg, ctx, state))):
+        log("\nevery action under the last focus led back to a screen seen before it, so this answer is final")
+        may_resume = False
     reviews: list[dict] = []
     while True:
         can_ask = may_resume and ctx.ask is not None and len(state.guidance.exchanges) < MAX_QUESTIONS
@@ -199,6 +206,7 @@ def hand_off(cfg: RunConfig, ctx: Context, state: RunState, step: int, log: Log)
                 )
                 record["handed_back"] = True
                 state.handoffs.append(Handoff(step, state.outcome, answer.focus, len(state.history)))
+                state.focus_screen = signature(*stopped_on(cfg, ctx, state))
                 state.guidance = state.guidance.focused(answer.focus)
                 state.idle = state.repeats = 0  # the stall was under the old focus; the new one starts clean
                 return True
@@ -212,8 +220,23 @@ def verdict(answer: Answer) -> str:
     return "goal achieved" if answer.achieved else "goal not achieved"
 
 
-def review(cfg: RunConfig, ctx: Context, state: RunState, stopped: str, can_ask: bool) -> Answer:
-    """Have the writer read the screen the classifier stopped on.
+def went_nowhere(state: RunState, now: Signature) -> bool:
+    """Whether every screen since the writer last handed the run back is one the run knew before.
+
+    A focus is one move toward the goal. When each action taken under it led back to a screen seen
+    before the focus was given, the move went nowhere, and another focus from the same screens goes
+    round again. `now` is the screen the run stopped on, captured after its last action.
+    """
+    if not state.handoffs or state.focus_screen is None:
+        return False
+    given = state.handoffs[-1].actions
+    known = [seen for seen, _ in state.seen[:given]] + [state.focus_screen]
+    since = [seen for seen, _ in state.seen[given:]] + [now]
+    return all(any(same_screen(screen, other) for other in known) for screen in since)
+
+
+def stopped_on(cfg: RunConfig, ctx: Context, state: RunState) -> tuple[Screen, list[Item]]:
+    """The screen the classifier stopped on, as the writer reads it.
 
     The last step's capture serves when nothing acted after it. An action makes it stale, so the
     screen is captured again, and saved so the answer can be checked against what it was read from.
@@ -223,7 +246,12 @@ def review(cfg: RunConfig, ctx: Context, state: RunState, stopped: str, can_ask:
         screen = capture(cfg.image, cfg.app, cfg.url, ctx.browser)
         screen.image.save(cfg.out / "answer-raw.png")
         state.view = (screen, perceive(screen, MAX_OPTIONS, cfg.goal))
-    screen, items = state.view
+    return state.view
+
+
+def review(cfg: RunConfig, ctx: Context, state: RunState, stopped: str, can_ask: bool) -> Answer:
+    """Have the writer read the screen the classifier stopped on."""
+    screen, items = stopped_on(cfg, ctx, state)
     earlier = earlier_screens(state, signature(screen, items))
     earlier_stops = [{"after_action": h.actions, "why": STOPPED[h.outcome], "focus_given": h.focus} for h in state.handoffs]
     return compose_answer(

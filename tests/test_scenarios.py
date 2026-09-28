@@ -1716,3 +1716,55 @@ def test_l53_unverified_keystrokes_stay_when_the_field_will_not_take_a_value(mon
     assert "via keystrokes" in state.history[0] and "could not safely restore previous value" in state.history[0]
     assert world.typed["Search"] == "bruno mars tour"  # left for the next step to see, not erased blind
     assert world.log == ["clear_field", "type:bruno mars tour"]  # emptied before typing, never after
+
+
+def test_l54_a_focus_that_leads_only_back_to_screens_already_seen_is_the_last(monkeypatch, tmp_path):
+    """The name field takes the click and not the keyboard focus, as Chrome's profile page did in
+    OSWorld. The first focus changes nothing, and another from the same screen would go round again."""
+    world = World([Page(name="profile", items=["Name", "Person 1"], url="https://example.com/profile")])
+    writer = FakeWriter(reviews=[{"focus": "Click the 'Name' field"}, {"focus": "Select all the text in 'Name'"}])
+
+    def policy(state: dict, questions: dict) -> tuple:
+        if state.get("current_focus") and not state["previous_actions"]:
+            return ("click_item", "Name")
+        return ("type_text", None, 0.39)
+
+    state = drive(
+        world, policy, goal="change my profile name to Thomas", monkeypatch=monkeypatch, tmp_path=tmp_path, writer=writer
+    )
+
+    assert state.outcome == "low confidence"
+    assert world.log == ["click:Name"]
+    assert [h.focus for h in state.handoffs] == ["Click the 'Name' field"]
+    assert len(writer.packets) == 2  # the stop after it is still read and answered, and that answer is final
+    assert not state.answer.achieved
+    assert "led back to a screen seen before it, so this answer is final" in (tmp_path / "run" / "run.log").read_text()
+
+
+def test_l55_a_focus_that_reached_a_new_screen_may_be_followed_by_another(monkeypatch, tmp_path):
+    """Under the first focus the classifier opens the listing, a screen it had not seen, and comes back
+    to the results. The move went somewhere, so the writer may name the next one."""
+    world = shop()
+    world.pages["slow listing"].on["back"] = "results"
+    listing, faster = "Open the 'MacBook 2010' listing", f"Click the '{FILTER}' filter"
+    writer = FakeWriter(reviews=[{"focus": listing}, {"focus": faster}])
+
+    def policy(state: dict, questions: dict) -> tuple:
+        url, focus = state["browser_active_tab_url"], state.get("current_focus")
+        if url.endswith("&fast=1"):
+            return ("done", None)
+        if url.endswith("/1"):
+            return ("go_back", None)
+        if focus == faster:
+            return ("click_item", FILTER)
+        if focus == listing and not state["previous_actions"]:
+            return ("click_item", "MacBook 2010")
+        return ("click_item", "MacBook 2010", 0.38)
+
+    state = drive(world, policy, goal=SHOP_GOAL, monkeypatch=monkeypatch, tmp_path=tmp_path, writer=writer)
+
+    assert state.outcome == "done" and state.answer.achieved
+    assert world.page.name == "filtered"
+    assert world.log == ["click:MacBook 2010", "back", f"click:{FILTER}"]
+    assert [h.focus for h in state.handoffs] == [listing, faster]
+    assert "so this answer is final" not in (tmp_path / "run" / "run.log").read_text()
