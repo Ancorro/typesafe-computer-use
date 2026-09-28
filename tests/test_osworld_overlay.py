@@ -130,7 +130,7 @@ def script(tmp_path: Path, processes):
 def test_no_command_prints_the_usage(script):
     result = script()
     assert result.returncode == 2
-    assert "run-jev DOMAIN/ID --ocr OCR" in result.stdout
+    assert "run-jev TASK... --ocr OCR" in result.stdout
 
 
 def test_run_jev_refuses_to_start_without_ocr(script):

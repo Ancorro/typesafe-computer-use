@@ -3,9 +3,9 @@
 # a run starts it when stopped, and it stops itself when idle and every night.
 #
 #   scripts/osworld-gcp up                           create or update the machine (terraform apply)
-#   scripts/osworld-gcp run-jev DOMAIN/ID --ocr OCR  start it, sync this copy, run jev on one task,
-#                                                    copy the results back into results/
-#   scripts/osworld-gcp run-luna DOMAIN/ID           the same with OSWorld's GPT agent on gpt-6-luna
+#   scripts/osworld-gcp run-jev TASK... --ocr OCR    start it, sync this copy, run jev on the tasks
+#                                                    (DOMAIN/ID each), copy the results back into results/
+#   scripts/osworld-gcp run-luna TASK...             the same with OSWorld's GPT agent on gpt-6-luna
 #   scripts/osworld-gcp watch                        forward the task VM's screen; prints the URL
 #   scripts/osworld-gcp status                       running or stopped, and since when
 #   scripts/osworld-gcp stop                         stop the machine now; its disk stays
@@ -243,27 +243,34 @@ pull_results() {
 }
 
 # The machine moves a task's earlier result into its results/archive/ before a new run, and a pull
-# only adds files, so the local copy of that task moves aside too; otherwise the new run's files
+# only adds files, so the local copy of each task moves aside too; otherwise the new run's files
 # would land on top of the old run's, and the leftovers would read as part of the new run. The pull
-# after the run brings back every agent's current result for the task.
+# after the run brings back every agent's current result for the tasks.
 archive_local() {
-  local task=$1 stamp dir rel
+  local stamp dir rel task
   stamp=$(date +%Y%m%d-%H%M%S)
-  for dir in results/*/*/*/"$task"; do
-    [[ -d $dir ]] || continue
-    rel=${dir#results/}
-    run mkdir -p "results/archive/$stamp-local/${rel%/*}"
-    run mv "$dir" "results/archive/$stamp-local/$rel"
+  for task in "$@"; do
+    for dir in results/*/*/*/"$task"; do
+      [[ -d $dir ]] || continue
+      rel=${dir#results/}
+      run mkdir -p "results/archive/$stamp-local/${rel%/*}"
+      run mv "$dir" "results/archive/$stamp-local/$rel"
+    done
   done
 }
 
+TASK_PATTERN='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+
 # run-jev and run-luna: start, sync, run on the machine with its output streamed here, pull.
 run_task() {
-  local command=$1 arg args="" status=0
+  local command=$1 arg args="" status=0 tasks=()
   shift
-  if [[ ! ${1:-} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
-    if [[ $command == run-jev ]]; then die "usage: scripts/osworld-gcp run-jev DOMAIN/ID --ocr OCR"; fi
-    die "usage: scripts/osworld-gcp run-luna DOMAIN/ID"
+  for arg in "$@"; do
+    if [[ $arg =~ $TASK_PATTERN ]]; then tasks+=("$arg"); fi
+  done
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    if [[ $command == run-jev ]]; then die "usage: scripts/osworld-gcp run-jev DOMAIN/ID... --ocr OCR"; fi
+    die "usage: scripts/osworld-gcp run-luna DOMAIN/ID..."
   fi
   if [[ $command == run-jev && " $* " != *" --ocr "* && " $* " != *" --ocr="* ]]; then
     die "run-jev needs --ocr: rapidocr on this Linux machine (vision is the macOS backend)"
@@ -274,7 +281,7 @@ run_task() {
   start_if_stopped
   wait_for_machine ready
   sync_repo
-  archive_local "$1"
+  archive_local "${tasks[@]}"
 
   # A terminal gets a remote terminal too, so Ctrl-C stops the run on the machine.
   local tty=()
