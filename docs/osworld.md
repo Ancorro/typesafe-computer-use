@@ -52,18 +52,20 @@ Results land where OSWorld's runner puts them,
 `traj.jsonl` with every action, a screenshot per step, and `recording.mp4`. jev's usual run folder
 is inside, as `jev/`, so `clicker --image` replays any step; its `run.json` holds the tokens per
 model and the OCR backend, provider, and architecture the run used, and `results` shows them, as
-it shows Luna's tokens from `usage.json`, reasoning tokens among them. jev
-reads `screenshot_a11y_tree` observations and Luna the GPT script's default, `screenshot`, so
-compare their times with that in mind. OSWorld's runner skips a task that already has a result,
-so a rerun first moves the earlier one to `results/archive/<time>/`; `scripts/osworld-gcp` moves
-its local copy aside the same way before a run, so a pull never mixes two runs' files.
+it shows Luna's tokens from `usage.json`, reasoning tokens among them, with its model time and
+reasoning effort. jev reads `screenshot_a11y_tree` observations and Luna the GPT script's default,
+`screenshot`, so compare their times with that in mind. OSWorld's runner skips a task that already
+has a result, so a rerun first moves the earlier one to `results/archive/<time>/`;
+`scripts/osworld-gcp` moves its local copy aside the same way before a run, so a pull never mixes
+two runs' files.
 
 After each cloud run, `scripts/osworld-gcp` appends one JSON line per task to
-`benchmarks/osworld/<run>.jsonl`: the score, steps, time, outcome, and tokens per model, with the
-commit the run synced, whether the synced copy differed from it (and a hash of the difference),
-OSWorld's pinned commit, the command, and the machine. Rows are never edited; a rerun is a new file.
-They are not committed for you: committing a run's file is what makes it part of the record, and a
-row from a dirty copy says so. Screenshots and recordings stay in `results/`, out of git.
+`benchmarks/osworld/<run>.jsonl`: the score, steps, time, outcome, and tokens per model (for Luna,
+also its model time and reasoning effort), with the commit the run synced, whether the synced copy
+differed from it (and a hash of the difference), OSWorld's pinned commit, the command, and the
+machine. Rows are never edited; a rerun is a new file. They are not committed for you: committing a
+run's file is what makes it part of the record, and a row from a dirty copy says so. Screenshots and
+recordings stay in `results/`, out of git.
 
 OSWorld keeps no accessibility tree. With `JEV_OSWORLD_SAVE_A11Y=1` (in the environment or `.env`),
 jev saves each observation's raw tree in its run folder as `obs-NNN-a11y.xml`, counting from `000`,

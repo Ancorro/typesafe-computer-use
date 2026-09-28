@@ -24,6 +24,28 @@ def test_a_scored_task_row_carries_the_run_the_score_and_the_tokens(tmp_path):
     assert row["usage"]["claude-haiku-4-5"]["cached_input_tokens"] == 300
 
 
+def test_a_luna_row_carries_its_model_time_and_reasoning_effort(tmp_path):
+    folder = task_folder(tmp_path, "gpt-6-luna", "screenshot")
+    (folder / "result.txt").write_text("0.0\n", encoding="utf-8")
+    usage = {"requests": 4, "input_tokens": 11119, "cached_input_tokens": 18049, "output_tokens": 258}
+    summary = {"usage": {"gpt-6-luna": usage}, "seconds": 10.714, "settings": {"reasoning_effort": "xhigh"}}
+    (folder / "usage.json").write_text(json.dumps(summary), encoding="utf-8")
+
+    (row,) = record.rows(tmp_path, "gpt-6-luna", ["chrome/030eeff7-b492-4218-b312-701ec99ee0cc"], SETTINGS)
+
+    assert (row["agent_seconds"], row["model_seconds"]) == (None, 10.714)
+    assert row["agent_settings"] == {"reasoning_effort": "xhigh"}
+    assert row["usage"]["gpt-6-luna"]["cached_input_tokens"] == 18049
+
+
+def test_a_jev_row_has_no_model_time_or_agent_settings(tmp_path):
+    folder = task_folder(tmp_path, "jev", "screenshot_a11y_tree")
+    (folder / "result.txt").write_text("1.0\n", encoding="utf-8")
+    jev_run(folder)
+    (row,) = record.rows(tmp_path, "jev", ["chrome/030eeff7-b492-4218-b312-701ec99ee0cc"], SETTINGS)
+    assert (row["agent_seconds"], row["model_seconds"], row["agent_settings"]) == (84.2, None, {})
+
+
 def test_a_task_that_left_no_folder_still_gets_a_scoreless_row(tmp_path):
     (row,) = record.rows(tmp_path, "jev", ["chrome/missing"], SETTINGS)
     assert row["score"] is None and row["error"] == "no result folder came back"

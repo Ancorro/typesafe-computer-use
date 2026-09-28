@@ -4,7 +4,8 @@ OSWorld files each task under `<results>/<action_space>/<observation_type>/<mode
 `result.txt` holds the score and `traj.jsonl` one line per action, with its time. jev adds its own
 run folder there, `jev/`, whose `run.json` holds jev's outcome, its tokens per model, and what the
 run ran on: the OCR backend, OSWorld's provider, and the machine's architecture. The Luna runner
-writes `usage.json` there instead, with its tokens in the same shape (see `usage.py`).
+writes `usage.json` there instead, with its tokens in the same shape, the seconds its model took,
+and the settings it ran with, such as the reasoning effort (see `usage.py`).
 
 `scripts/osworld results` prints this. It reads files only, so it runs anywhere, with no OSWorld
 checkout. Earlier runs that `scripts/osworld` moved aside live under `<results>/archive/` and are
@@ -51,6 +52,15 @@ class Jev:
 
 
 @dataclass(frozen=True)
+class UsageFile:
+    """What an agent that is not jev says about its task in usage.json."""
+
+    usage: dict[str, Usage] = field(default_factory=dict)
+    seconds: float | None = None  # the model's time only, not the task's
+    settings: dict[str, str] = field(default_factory=dict)  # what the model ran with, such as its reasoning effort
+
+
+@dataclass(frozen=True)
 class TaskResult:
     folder: Path
     action_space: str
@@ -65,6 +75,8 @@ class TaskResult:
     errors: list[str]
     jev: Jev | None  # None for an agent that is not jev
     usage: dict[str, Usage] = field(default_factory=dict)  # tokens per model: jev's run.json, or usage.json
+    model_seconds: float | None = None  # usage.json's model time; None for jev, whose run.json times the whole run
+    settings: dict[str, str] = field(default_factory=dict)  # usage.json's settings, such as the reasoning effort
 
 
 def read(root: Path) -> list[TaskResult]:
@@ -86,6 +98,7 @@ def task(folder: Path) -> TaskResult:
     score = score_file.read_text(encoding="utf-8").strip() if score_file.is_file() else None
     steps, actions, seconds, errors = _trajectory(folder / "traj.jsonl")
     jev = _jev(folder / RUN_FOLDER / "run.json")
+    own = _usage_file(folder / USAGE_FILE) if jev is None else UsageFile()
     return TaskResult(
         folder=folder,
         action_space=action_space,
@@ -99,7 +112,9 @@ def task(folder: Path) -> TaskResult:
         seconds=seconds,
         errors=errors,
         jev=jev,
-        usage=jev.usage if jev is not None else _usage_file(folder / USAGE_FILE),
+        usage=jev.usage if jev is not None else own.usage,
+        model_seconds=own.seconds,
+        settings=own.settings,
     )
 
 
@@ -153,12 +168,18 @@ def _usage(summary: dict) -> dict[str, Usage]:
     }
 
 
-def _usage_file(path: Path) -> dict[str, Usage]:
+def _usage_file(path: Path) -> UsageFile:
     """An agent's own usage.json, for an agent that is not jev; empty when it wrote none."""
     try:
-        return _usage(json.loads(path.read_text(encoding="utf-8")))
+        summary = json.loads(path.read_text(encoding="utf-8"))
+        seconds = summary.get("seconds")
+        return UsageFile(
+            usage=_usage(summary),
+            seconds=float(seconds) if isinstance(seconds, int | float) else None,
+            settings={str(name): str(value) for name, value in (summary.get("settings") or {}).items()},
+        )
     except (OSError, json.JSONDecodeError, AttributeError):
-        return {}
+        return UsageFile()
 
 
 def duration(seconds: float) -> str:
@@ -188,6 +209,11 @@ def describe(result: TaskResult) -> list[str]:
         if jev.seconds is not None:
             ended += f" after {duration(jev.seconds)}"
         row("jev", f"{ended}; ocr {jev.ocr}, provider {jev.provider}, architecture {jev.architecture}")
+    agent = [f"{name} {value}" for name, value in sorted(result.settings.items())]
+    if result.model_seconds is not None:
+        agent.insert(0, f"{duration(result.model_seconds)} of model time")
+    if agent:
+        row("agent", "; ".join(agent))
     label = "tokens"
     for model, used in sorted(result.usage.items()):
         reasoning = f" ({used.reasoning_tokens:,} reasoning)" if used.reasoning_tokens else ""
