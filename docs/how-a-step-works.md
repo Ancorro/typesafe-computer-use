@@ -153,10 +153,11 @@ the user said, once there are any:
   screens before it, newest first up to 600 lines, because the goal may ask for a price
   that was on the listing and not on the checkout. It returns `{achieved, answer, focus, question}`,
   and is told to take the answer from those screens and the user's replies alone, to give a focus
-  as one move and not a plan, and never to ask for a credential. When the run ends short of the
-  goal, it says what the agent could not do. When an action ran after the last capture, the
-  screen is captured again first. This one call uses `CLICKER_ANSWER_MODEL`, a stronger
-  reader than the per-step writer.
+  as one move and not a plan, and only a move the agent has: no shortcut, right-click, or text
+  selection (typing replaces what a field holds), and a website only by its https address. It
+  never asks for a credential, and when the run ends short of the goal it says what the agent
+  could not do. When an action ran after the last capture, the screen is captured again first.
+  This one call uses `CLICKER_ANSWER_MODEL`, a stronger reader than the per-step writer.
 
 Passwords are never typed. Rely on the browser's password manager or an SSO button
 the OCR can read.
