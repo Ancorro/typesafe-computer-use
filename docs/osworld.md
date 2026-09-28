@@ -65,8 +65,10 @@ After each cloud run, `scripts/osworld-gcp` appends one JSON line per task to
 also its model time and reasoning effort), with the commit the run synced, whether the synced copy
 differed from it (and a hash of the difference), OSWorld's pinned commit, the command, and the
 machine. Rows are never edited; a rerun is a new file. They are not committed for you: committing a
-run's file is what makes it part of the record, and a row from a dirty copy says so. Screenshots and
-recordings stay in `results/`, out of git.
+run's file is what makes it part of the record, and a row from a dirty copy says so. A pull the
+tunnel drops is tried again; when the results still do not come back, the run records no rows, which
+would say that no task came back, and prints the command that records them after `pull-results`.
+Screenshots and recordings stay in `results/`, out of git.
 
 OSWorld keeps no accessibility tree. With `JEV_OSWORLD_SAVE_A11Y=1` (in the environment or `.env`),
 jev saves each observation's raw tree in its run folder as `obs-NNN-a11y.xml`, counting from `000`,
