@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,7 +13,7 @@ from PIL import Image, ImageChops, ImageStat
 from .config import MAX_OPTIONS, MIN_OCR_CONFIDENCE
 from .models import MENU_BAR_PT, AxNode, Box, Item, Screen
 from .platform_adapter import desktop
-from .timing import OCR_RECTS, OCR_REGION_PCT, phase
+from .timing import OCR_AHEAD, OCR_RECTS, OCR_REGION_PCT, phase
 
 Line = tuple[str, float, Box]
 ECHO_CHARS = 24
@@ -38,15 +40,21 @@ def capture(
     url: str | None = None,
     browser: str = "",
     timing: dict[str, float] | None = None,
+    ahead: OcrCache | None = None,
 ) -> Screen:
     """Capture the main display, or load a saved capture for replay (then app/url are taken as given).
 
     Each query below is a round trip to the window server, AX, or AppleScript. Pass `timing` to
     record the seconds each one costs under "screenshot", "app", "window", "field", and "url".
+    Pass `ahead`, the run's OCR cache, to start reading the capture while those queries run (see
+    `OcrCache.read_ahead`).
     """
     replay = image_path is not None and app is not None
     with phase(timing, "screenshot"):
         image = Image.open(image_path).convert("RGB") if image_path else desktop.screenshot()
+    scale = desktop.display_scale(image)
+    if ahead is not None:
+        ahead.read_ahead(image, scale)
     with phase(timing, "app"):
         if replay:
             frontmost, pid = app, None
@@ -59,9 +67,7 @@ def capture(
         field = None if replay else desktop.focused_field()
     with phase(timing, "url"):
         page_url = url if url is not None else (None if replay else desktop.browser_url(browser))
-    return Screen(
-        image=image, scale=desktop.display_scale(image), app=frontmost, field=field, url=page_url, pid=pid, window=window
-    )
+    return Screen(image=image, scale=scale, app=frontmost, field=field, url=page_url, pid=pid, window=window)
 
 
 def goal_echoes(goal: str) -> set[str]:
@@ -122,12 +128,17 @@ def ocr(
     """The screen's text as items, filtered and merged into blocks.
 
     The filter runs over the raw lines every step, including the reused ones, so a cached line is
-    treated exactly as a freshly read one.
+    treated exactly as a freshly read one. A read the cache made ahead of the step counts as its
+    own when it read this screen (see `OcrCache.read_ahead`), and the seconds it took go under
+    "ocr_ahead".
     """
-    lines, read_pct, rects = ocr_lines(screen, cache)
+    ahead = cache.take_ahead(screen) if cache is not None else None
+    lines, read_pct, rects = ahead.lines if ahead is not None else ocr_lines(screen, cache)
     if timing is not None:
         timing[OCR_REGION_PCT] = round(read_pct, 1)
         timing[OCR_RECTS] = rects
+        if ahead is not None:
+            timing[OCR_AHEAD] = round(ahead.seconds, 3)
     echoes = goal_echoes(goal)
     kept: list[Line] = [
         (t.strip(), c, b) for t, c, b in lines if t.strip() and c >= MIN_OCR_CONFIDENCE and not is_echo(t, echoes)
@@ -151,6 +162,7 @@ class OcrCache:
         self.region: Box | None = None
         self.thumb: Image.Image | None = None
         self.lines: list[Line] = []
+        self._ahead: ReadAhead | None = None
 
     def reusable(self, screen: Screen, region: Box, thumb: Image.Image) -> bool:
         """Never across a different app, a moved or resized window, or a different read region."""
@@ -164,6 +176,78 @@ class OcrCache:
 
     def store(self, screen: Screen, region: Box, thumb: Image.Image, lines: list[Line]) -> None:
         self.app, self.window, self.region, self.thumb, self.lines = screen.app, screen.window, region, thumb, list(lines)
+
+    def adopt(self, other: OcrCache) -> None:
+        """Take what `other` remembers of the previous capture as this cache's own."""
+        self.app, self.window, self.region, self.thumb = other.app, other.window, other.region, other.thumb
+        self.lines = list(other.lines)
+
+    def copy(self) -> OcrCache:
+        other = OcrCache()
+        other.adopt(self)
+        return other
+
+    def read_ahead(self, image: Image.Image, scale: float) -> None:
+        """Start reading `image` on a thread of its own, while the capture asks which app and window it
+        shows. Where those queries are slow, as an OSWorld VM's tree is, the read overlaps them.
+
+        The read is `ocr_lines` over the previous capture's app and window, into a copy of this cache,
+        so it is the very read `ocr_lines` makes once the capture finds them unchanged, as a page that
+        stays in one window does; `ocr` takes it then, and reads the screen itself otherwise. The
+        first capture has nothing to go on, so nothing is read ahead of it. A read still running
+        from an earlier capture is waited out first, so the OCR engine never reads two at once.
+        """
+        self.drop_ahead()
+        if self.thumb is None:
+            return
+        guess = Screen(image=image, scale=scale, app=self.app or "", field=None, url=None, window=self.window)
+        self._ahead = ReadAhead(guess, self.copy())
+
+    def take_ahead(self, screen: Screen) -> ReadAhead | None:
+        """The read made ahead of `screen`, once it is done, when it read this capture over this app
+        and window; its cache becomes this one. None when there is none, or it read another."""
+        ahead, self._ahead = self._ahead, None
+        if ahead is None:
+            return None
+        ahead.wait()
+        if ahead.lines is None or not ahead.fits(screen):
+            return None
+        self.adopt(ahead.cache)
+        return ahead
+
+    def drop_ahead(self) -> None:
+        """Wait out a read made ahead of a capture that never came to be read, and forget it."""
+        if self._ahead is not None:
+            self._ahead.wait()
+            self._ahead = None
+
+
+class ReadAhead:
+    """One capture's OCR, read on a thread of its own over the app and window it guessed."""
+
+    def __init__(self, screen: Screen, cache: OcrCache) -> None:
+        self.screen = screen  # the capture, and the app and window the read bet on
+        self.cache = cache  # a copy of the run's cache, which the read updates
+        self.lines: tuple[list[Line], float, int] | None = None  # what `ocr_lines` returned; None if it raised
+        self.seconds = 0.0
+        self._thread = threading.Thread(target=self._read, name="jev-ocr-ahead", daemon=True)
+        self._thread.start()
+
+    def _read(self) -> None:
+        started = time.perf_counter()
+        try:
+            self.lines = ocr_lines(self.screen, self.cache)
+        except Exception:  # the step reads the screen itself, and raises what this one swallowed
+            self.lines = None
+        self.seconds = time.perf_counter() - started
+
+    def wait(self) -> None:
+        self._thread.join()
+
+    def fits(self, screen: Screen) -> bool:
+        """Whether this read is the one `ocr_lines` would make of `screen`."""
+        guess = self.screen
+        return screen.image is guess.image and (screen.scale, screen.app, screen.window) == (guess.scale, guess.app, guess.window)
 
 
 def ocr_lines(screen: Screen, cache: OcrCache | None = None) -> tuple[list[Line], float, int]:
