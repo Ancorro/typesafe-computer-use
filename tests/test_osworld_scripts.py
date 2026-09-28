@@ -9,6 +9,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -104,6 +105,42 @@ def test_the_cloud_run_lives_on_the_machine_not_in_the_connection(tmp_path):
     assert ".osworld/runs/" in printed and ".status" in printed, "its log and exit status stay on the machine"
     assert "tail -n +1 -F --pid=4242" in printed, "and this end follows its log"
     assert "ServerAliveInterval=15" in printed, "noticing a stalled stream instead of hanging on it"
+
+
+def test_the_detached_start_returns_at_once_and_leaves_its_pid_log_and_status(tmp_path):
+    """The start command, run for real in a folder of its own with an osworld-exec that takes a moment."""
+    bin_dir, repo = tmp_path / "bin", tmp_path / "repo"
+    bin_dir.mkdir()
+    repo.mkdir()
+    (bin_dir / "osworld-exec").write_text('#!/bin/sh\necho "ran $*"\nsleep 1\nexit 3\n')
+    (bin_dir / "osworld-exec").chmod(0o755)
+    if shutil.which("setsid") is None:  # macOS has none; the Linux machine does
+        (bin_dir / "setsid").write_text('#!/bin/sh\nexec "$@"\n')
+        (bin_dir / "setsid").chmod(0o755)
+    source = "\n".join(function(OSWORLD_GCP, name) for name in ("quote", "detach_command"))
+    command = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'RUNS_DIR=.osworld/runs\n{source}\ndetach_command "$1" run1 "scripts/osworld run-jev chrome/a"',
+            "bash",
+            str(repo),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path)}
+    started = time.monotonic()
+    out = subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=True, env=env, timeout=10)
+    assert time.monotonic() - started < 0.9, "the start returns before the run ends"
+    runs = repo / ".osworld" / "runs"
+    assert out.stdout.strip() == (runs / "run1.pid").read_text().strip()
+    deadline = time.monotonic() + 10
+    while not (runs / "run1.status").exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert (runs / "run1.status").read_text().strip() == "3"
+    assert (runs / "run1.log").read_text().strip() == "ran scripts/osworld run-jev chrome/a"
 
 
 def test_attach_follows_the_newest_run_and_cancel_stops_its_whole_session(tmp_path):

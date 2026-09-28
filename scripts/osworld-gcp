@@ -305,13 +305,20 @@ RUNS_DIR=.osworld/runs
 KEEPALIVE=(--ssh-flag=-oServerAliveInterval=15 --ssh-flag=-oServerAliveCountMax=4) # a stalled stream ends in a minute
 RECONNECTS=${OSWORLD_GCP_RECONNECTS:-20}
 
-# Start COMMAND in the repo on the machine as its own session, immune to this connection, and print
-# its process id. Its output goes to RUNS_DIR/NAME.log and its exit status to NAME.status.
-start_detached() {
-  local name=$1 command=$2 inner outer
+# The shell command that starts COMMAND in DIR as its own session, immune to the connection that
+# ran it, and prints its process id. Its output goes to RUNS_DIR/NAME.log, its process id to
+# NAME.pid, and its exit status to NAME.status. Only the start goes in the background, with every
+# stream redirected, so the connection closes at once.
+detach_command() {
+  local dir=$1 name=$2 command=$3 inner
   inner="osworld-exec $command; echo \$? > $RUNS_DIR/$name.status"
-  outer="cd $REMOTE_DIR && mkdir -p $RUNS_DIR && setsid nohup bash -c $(quote "$inner") > $RUNS_DIR/$name.log 2>&1 < /dev/null & echo \$! | tee $RUNS_DIR/$name.pid"
-  query 4242 "${SSH[@]}" --command "sudo -u $REMOTE_USER -H bash -c $(quote "$outer")" </dev/null | tr -d '\r' | tail -n 1
+  printf '%s' "cd $dir || exit 1; mkdir -p $RUNS_DIR || exit 1; setsid nohup bash -c $(quote "$inner") > $RUNS_DIR/$name.log 2>&1 < /dev/null & echo \$! | tee $RUNS_DIR/$name.pid"
+}
+
+start_detached() {
+  local command
+  command=$(detach_command "$REMOTE_DIR" "$1" "$2")
+  query 4242 "${SSH[@]}" --command "sudo -u $REMOTE_USER -H bash -c $(quote "$command")" </dev/null | tr -d '\r' | tail -n 1
 }
 
 # Print a detached run's log here until the run ends, reconnecting when the stream drops. Each
