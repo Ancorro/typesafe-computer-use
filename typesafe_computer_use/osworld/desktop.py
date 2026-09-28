@@ -4,12 +4,15 @@ OSWorld hands its agent one observation per step and takes back a list of action
 strings, or `WAIT` / `DONE` / `FAIL`. jev's loop reads the screen and acts whenever it likes. This
 adapter joins the two at the step boundary:
 
-- Every input (click, key, typing, scroll) appends one pyautogui code string to `actions`.
+- Every input (click, key, typing, scroll) adds its pyautogui code to the step's code, as lines of
+  its own. OSWorld runs each action in the list as a step of its own, with a 2 s pause, a
+  screenshot, and the whole tree after it, and hands the agent only the last observation; so the
+  inputs between two reads (empty a field, type, press Return) go out as one action.
 - The first read of the screen after an input ends the step: the actions go to `next_obs`, which
   hands them to OSWorld and returns the observation taken after they ran. Reads before any input
   use the observation in hand.
-- A wait appends `WAIT`, which OSWorld sleeps in the VM. It never sleeps here: time has to pass
-  where the page is loading.
+- A wait appends `WAIT`, an action of its own, which OSWorld sleeps in the VM. It never sleeps
+  here: time has to pass where the page is loading.
 
 The screenshot is the capture at scale 1.0, so a click lands on the capture's own pixels. The app,
 window, focused field, URL, and controls come from the accessibility tree, and are simply unknown
@@ -40,6 +43,7 @@ TYPE_INTERVAL = 0.02  # seconds between keystrokes in the VM
 BROWSER_WINDOW_CLASS = "google-chrome"  # the WM_CLASS wmctrl raises for the browser
 BROWSER_COMMAND = "google-chrome"  # how OSWorld's Chrome tasks start the browser
 RAISE_SECONDS = 0.5  # for the window manager to hand the raised window the keyboard
+WAIT = "WAIT"  # the action OSWorld sleeps on in the VM
 
 # macOS key names, as the loop presses them, onto pyautogui's. The Mac's delete key erases backwards.
 KEYS = {"return": "enter", "escape": "esc", "delete": "backspace"}
@@ -90,7 +94,12 @@ class OSWorldDesktop:
         return self._root
 
     def _do(self, code: str) -> None:
-        self.actions.append(code)
+        """Add an input's code to the step's. A new line, not `; `, joins them: the browser's code
+        branches over several lines, and code after it must run whichever way it branched."""
+        if self.actions and self.actions[-1] != WAIT:
+            self.actions[-1] += "\n" + code
+        else:
+            self.actions.append(code)
 
     # ----- the escape hatch ------------------------------------------------------------------
 
@@ -102,7 +111,7 @@ class OSWorldDesktop:
 
     def sleep_watching(self, seconds: float) -> None:
         if seconds > 0:
-            self._do("WAIT")
+            self.actions.append(WAIT)  # OSWorld knows it only as an action on its own
 
     def accessibility_trusted(self) -> bool:
         return True
