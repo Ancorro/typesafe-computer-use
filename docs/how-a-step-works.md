@@ -36,7 +36,10 @@ declared, `ax+ocr` when both found the same thing. A symbol OCR reads off a butt
 link, `←` on Back or `☆` on the bookmark star, is that control's icon, and the control
 stands for it: two options for one click would only split the vote. An `ax` item reads as
 `button 'Share' (top-right)` in the criteria, so the classifier can tell a real control
-from a line of text. A label that appears more than once carries its row as well:
+from a line of text. A checkbox, switch, or radio button says whether it is on,
+`checkbox 'Send a Do Not Track request' (bottom-right; on)`, as the tree reports it: a click on
+a switch that is already on turns it off, and the pixels of a switch are no reliable witness.
+The answer reads the same state after the item's text. A label that appears more than once carries its row as well:
 `'Buy' (middle-right; in the row of 'Coldplay', 'Oct 2')`, since the label says nothing
 about which and the layout does. Text read inside the focused one-line field is not an
 item: it is the field's value or placeholder, the state carries the value, and the field

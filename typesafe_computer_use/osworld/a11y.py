@@ -111,6 +111,22 @@ def label(element: ET.Element | None) -> str:
     return content if len(content) <= LABEL_TEXT_CHARS else ""
 
 
+def checked(element: ET.Element | None) -> bool | None:
+    """Whether a checkbox, switch, or radio button is on, or None for an element that is neither.
+
+    Chromium marks one that is on `checked`, or `pressed` for a toggle button, which is what a
+    settings switch (`cr-toggle`) is. One that is off says only that it can be checked, and a
+    toggle button that is off says nothing at all: its role is the whole of it.
+    """
+    if element is None:
+        return None
+    if has_state(element, "checked") or has_state(element, "pressed"):
+        return True
+    if element.tag == "toggle-button" or has_state(element, "checkable"):
+        return False
+    return None
+
+
 def placeholder(element: ET.Element | None) -> str:
     """The hint an empty field shows. Chromium calls the attribute `placeholder`, GTK
     `placeholder-text`."""
@@ -221,7 +237,7 @@ def browser_url(root: ET.Element | None, browser: str | None = None) -> str | No
 
 
 def _attrs(element: ET.Element) -> AxAttrs:
-    return AxAttrs(ax_role(element.tag), label(element), frame(element))
+    return AxAttrs(ax_role(element.tag), label(element), frame(element), checked(element))
 
 
 def clicks(element: ET.Element) -> bool:

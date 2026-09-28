@@ -552,9 +552,29 @@ def _ui_frame(element) -> Frame | None:
     return float(rect.left), float(rect.top), float(rect.width()), float(rect.height())
 
 
+def toggle_checked(toggle_state) -> bool | None:
+    """A TogglePattern's ToggleState as on or off: On is 1 and Off 0. Indeterminate (2) is unknown."""
+    return {0: False, 1: True}.get(toggle_state) if isinstance(toggle_state, int) else None
+
+
+def _ui_checked(element, role: str) -> bool | None:
+    """Whether a checkbox or radio button is on: a checkbox toggles, a radio button is selected."""
+    try:
+        if role == "AXCheckBox":
+            toggle = _pattern(element, auto.PatternId.TogglePattern)
+            return toggle_checked(toggle.ToggleState) if toggle is not None else None
+        if role == "AXRadioButton":
+            item = _pattern(element, auto.PatternId.SelectionItemPattern)
+            return bool(item.IsSelected) if item is not None else None
+    except Exception:
+        return None
+    return None
+
+
 def _ui_attrs(element) -> AxAttrs:
     label = (getattr(element, "Name", "") or "").strip()
-    return AxAttrs(role_for(getattr(element, "ControlTypeName", "")), label, _ui_frame(element))
+    role = role_for(getattr(element, "ControlTypeName", ""))
+    return AxAttrs(role, label, _ui_frame(element), _ui_checked(element, role))
 
 
 def _ui_actions(element) -> list[str]:

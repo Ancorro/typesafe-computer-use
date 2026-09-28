@@ -1775,3 +1775,43 @@ def test_l55_a_new_page_starts_the_count_of_stalls_again(monkeypatch, tmp_path):
     assert world.page.name == "welcome"
     assert [h.outcome for h in state.handoffs] == ["stalled"] * MAX_STALLS  # enough to be stuck, were they on one page
     assert world.log == (["click:Help"] * (MAX_REPEATS + 1) + ["click:Next"]) * 3
+
+
+DNT = "Send a 'Do Not Track' request"
+
+
+def test_l56_a_switch_the_run_turned_on_reads_as_on_and_stays_on(monkeypatch, tmp_path):
+    """OSWorld's chrome/030eeff7: the switch took a Confirm to turn on, and nothing the classifier read
+    said it was on, so it clicked the switch once more and turned Do Not Track off again."""
+    cookies = "chrome://settings/cookies"
+    world = World(
+        [
+            Page(name="off", items=["Advanced", (DNT, "checkbox", False)], url=cookies, on={f"click:{DNT}": "confirm"}),
+            Page(
+                name="confirm",
+                items=["Do Not Track", ("Confirm", "button"), ("Cancel", "button")],
+                url=cookies,
+                on={"click:Confirm": "on"},
+            ),
+            Page(name="on", items=["Advanced", (DNT, "checkbox", True)], url=cookies, on={f"click:{DNT}": "off"}),
+        ]
+    )
+
+    def policy(state: dict, questions: dict) -> tuple:
+        """A classifier that clicks the switch until it reads as on."""
+        rows = {row["text"]: row for row in state["screen_items_in_reading_order"]}
+        if "Confirm" in rows:
+            return ("click_item", "Confirm")
+        return ("done", None) if rows[DNT].get("state") == "on" else ("click_item", DNT)
+
+    state = drive(world, policy, goal="enable Do Not Track", monkeypatch=monkeypatch, tmp_path=tmp_path)
+
+    assert state.outcome == "done"
+    assert world.page.name == "on"
+    assert world.log == [f"click:{DNT}", "click:Confirm"]
+    states = world.fake.states
+    assert [[row.get("state") for row in s["screen_items_in_reading_order"]] for s in (states[0], states[-1])] == [
+        [None, "off"],
+        [None, "on"],
+    ]
+    assert f"{DNT} (on)" in json.loads((tmp_path / "run" / "run.json").read_text())["answer"]  # the writer read it too

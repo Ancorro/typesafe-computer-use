@@ -88,7 +88,7 @@ def render_payload(
         parts.append(
             f"[{it.index:3d}] src={it.source:6} role={it.role or '-':8} conf={it.ocr_confidence:.2f} "
             f"box=({it.x1:.0f},{it.y1:.0f})-({it.x2:.0f},{it.y2:.0f}) "
-            f"click_pt=({cx:.0f},{cy:.0f}) {screen.region(it):13} {it.text!r}"
+            f"click_pt=({cx:.0f},{cy:.0f}) {screen.region(it):13} {it.text!r}{f' ({it.state})' if it.state else ''}"
         )
     if screen.offscreen:
         parts += [

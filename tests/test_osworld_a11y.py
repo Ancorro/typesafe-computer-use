@@ -298,3 +298,28 @@ def test_a_multi_line_entry_is_a_text_area_as_on_a_mac(lines, role):
     field = a11y.focused_field(tree)
     assert (field.role, field.label) == (role, "Comment")
     assert field.is_text
+
+
+def test_a_settings_switch_says_whether_it_is_on(settings):
+    """OSWorld's chrome/030eeff7: the Do Not Track switch was on, nothing jev read said so, and it
+    clicked the switch off again. A `cr-toggle` is a toggle button, `pressed` when on and bare when off."""
+    found = {n.label: n for n in a11y.walk(a11y.active_app(settings), *DISPLAY)[0]}
+    assert found["Show Home button"].checked is False
+    assert found["Show tab groups in bookmarks bar"].checked is True
+    assert found["Appearance"].checked is None  # a menu item is neither on nor off
+
+
+def test_a_checkbox_or_radio_button_is_on_when_checked_and_off_when_only_checkable(captured):
+    walked = a11y.walk(a11y.active_app(captured), *DISPLAY)[0]
+    (crash_reports,) = {n.checked for n in walked if n.role == "AXCheckBox" and "crash reports" in n.label}
+    assert crash_reports is False  # checkable, and not checked
+    tree = a11y.parse(
+        f'<desktop-frame xmlns:st="{a11y.NS_STATE}" xmlns:cp="{a11y.NS_COMPONENT}">'
+        '<application name="Google Chrome"><frame name="Chrome" st:active="true" cp:screencoord="(0, 0)" cp:size="(800, 600)">'
+        '<check-box name="Cookies" st:checkable="true" st:checked="true" cp:screencoord="(10, 10)" cp:size="(16, 16)"/>'
+        '<radio-button name="Bing" st:checkable="true" cp:screencoord="(10, 40)" cp:size="(16, 16)"/>'
+        '<push-button name="Save" cp:screencoord="(10, 70)" cp:size="(60, 30)"/>'
+        "</frame></application></desktop-frame>"
+    )
+    found = {n.label: n.checked for n in a11y.walk(a11y.active_app(tree), *DISPLAY)[0]}
+    assert found == {"Cookies": True, "Bing": False, "Save": None}

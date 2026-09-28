@@ -89,14 +89,15 @@ def row_mates(items: list[Item], limit: int | None = ROW_MATES) -> dict[int, lis
 
 
 def item_criteria(screen: Screen, items: list[Item]) -> dict[str, str]:
-    """Each item as one line. A role prefix marks the ones the app itself declared, and a
-    duplicated label carries its row."""
+    """Each item as one line. A role prefix marks the ones the app itself declared, a checkbox or
+    switch says whether it is on, and a duplicated label carries its row."""
     hints = date_hints(items, screen)
     mates = row_mates(items)
     return {
         str(it.index): (
             f"{it.role + ' ' if it.from_ax and it.role else ''}{it.text!r} "
             f"({screen.region(it)}"
+            f"{'; ' + it.state if it.state else ''}"
             f"{'; ' + hints[it.index] if it.index in hints else ''}"
             f"{'; in the row of ' + ', '.join(repr(t) for t in mates[it.index]) if it.index in mates else ''})"
         )
@@ -151,6 +152,7 @@ def base_state(
                 "text": it.text,
                 "where": screen.region(it),
                 **({"role": it.role} if it.role else {}),
+                **({"state": it.state} if it.state else {}),
                 **({"when": hints[it.index]} if it.index in hints else {}),
                 **({"beside": mates[it.index]} if it.index in mates else {}),
             }

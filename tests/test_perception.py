@@ -14,6 +14,7 @@ from typesafe_computer_use.perception import (
     merge_blocks,
     merge_sources,
     order_items,
+    to_ax_items,
     to_items,
 )
 from typesafe_computer_use.platform_adapter import desktop
@@ -79,6 +80,18 @@ def test_merge_folds_an_overlapping_control_onto_the_ocr_block_that_names_it():
     assert merged.source == "ax+ocr" and merged.role == "link"
     assert merged.text == "Register Now for Disrupt"  # the longer of the two labels
     assert (merged.x1, merged.y1, merged.x2, merged.y2) == (100.0, 100.0, 300.0, 130.0)  # the OCR box
+
+
+def test_a_switch_says_whether_it_is_on_as_a_control_and_merged_with_the_text_naming_it():
+    switch = AxNode(
+        role="AXCheckBox", label="Send a Do Not Track request", x=640, y=430, w=20, h=10, pressable=False, checked=True
+    )
+    (control,) = to_ax_items([switch], 2.0)
+    assert (control.role, control.checked, control.state) == ("checkbox", True, "on")
+    block = ocr_item(0, "Send a Do Not Track request", 1270, 855, 1330, 885)
+    (merged,) = merge_sources([block], [control])
+    assert (merged.source, merged.state) == ("ax+ocr", "on")
+    assert merge_sources([block], [])[0].state is None  # text alone is neither on nor off
 
 
 def test_merge_matches_on_shared_words_not_only_containment():

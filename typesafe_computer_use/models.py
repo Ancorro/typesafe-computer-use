@@ -124,6 +124,8 @@ class Item:
     `source` says where it came from: "ocr" for a merged text block, "ax" for an
     accessibility control, "ax+ocr" when the two agree on the same thing. `role` is a
     short human word (button, link, field, ...) and is empty for OCR-only items.
+    `checked` is whether a checkbox, switch, or radio button the app declared is on,
+    and None for anything else.
     """
 
     index: int
@@ -135,6 +137,7 @@ class Item:
     y2: float
     role: str = ""
     source: str = "ocr"
+    checked: bool | None = None
 
     @property
     def center(self) -> tuple[float, float]:
@@ -144,13 +147,19 @@ class Item:
     def from_ax(self) -> bool:
         return self.source in ("ax", "ax+ocr")
 
+    @property
+    def state(self) -> str | None:
+        """'on' or 'off' for a control that is one or the other, None for anything else."""
+        return None if self.checked is None else "on" if self.checked else "off"
+
 
 @dataclass(frozen=True)
 class AxNode:
     """One actionable accessibility element, in screen points.
 
     `ref` is the element itself, the handle an action is sent to. It is opaque here and
-    stays out of equality and repr so a node compares as the facts it reports.
+    stays out of equality and repr so a node compares as the facts it reports. `checked`
+    is whether a checkbox, switch, or radio button is on, and None for anything else.
     """
 
     role: str
@@ -160,6 +169,7 @@ class AxNode:
     w: float
     h: float
     pressable: bool
+    checked: bool | None = None
     ref: object | None = field(default=None, compare=False, repr=False)
 
     @property

@@ -377,7 +377,7 @@ def compose_answer(
         "user_can_be_asked": can_ask,
         "frontmost_app": screen.app,
         "browser_active_tab_url": screen.url,
-        "screen_text_in_reading_order": [it.text for it in items],
+        "screen_text_in_reading_order": [f"{it.text} ({it.state})" if it.state else it.text for it in items],
         **({"earlier_screens": earlier} if earlier else {}),
     }
     data = _structured(

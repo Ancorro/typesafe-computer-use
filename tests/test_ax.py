@@ -1,9 +1,10 @@
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 from conftest import busy_page
 
-from typesafe_computer_use import perception
+from typesafe_computer_use import macos, perception
 from typesafe_computer_use.ax_walk import AxAttrs, walk_actionable
 from typesafe_computer_use.models import AxNode, Item
 from typesafe_computer_use.platform_adapter import desktop
@@ -44,6 +45,18 @@ def test_keeps_labelled_controls_and_reports_no_cap():
     found, _offscreen, capped = walk(app(node("AXButton", "Share"), node("AXLink", "Pricing", frame=(0.0, 40.0, 60.0, 16.0))))
     assert [(n.role, n.label, n.x, n.w) for n in found] == [("AXButton", "Share", 10.0, 100.0), ("AXLink", "Pricing", 0.0, 60.0)]
     assert capped is False
+
+
+def test_a_control_carries_whether_it_is_on_and_one_that_is_neither_says_nothing():
+    switch, button = node("AXCheckBox", "Wi-Fi"), node("AXButton", "Share", frame=(0.0, 40.0, 60.0, 16.0))
+    found, _offscreen, _capped = walk_actionable(
+        app(switch, button),
+        lambda n: n["children"],
+        lambda n: AxAttrs(n["role"], n["label"], n["frame"], True if n is switch else None),
+        lambda n: [],
+        *DISPLAY,
+    )
+    assert [(n.label, n.checked) for n in found] == [("Wi-Fi", True), ("Share", None)]
 
 
 def test_a_frameless_root_does_not_prune_the_whole_tree():
@@ -346,3 +359,21 @@ def test_an_app_that_lists_itself_as_a_child_terminates():
     found, _, cap_hit = walk_actionable("app", lambda n: tree[n], attrs, lambda n: ["AXPress"], 1000, 800)
     assert [n.label for n in found] == ["File"]
     assert not cap_hit
+
+
+def test_a_mac_checkbox_or_radio_button_is_on_or_off_by_its_value(monkeypatch):
+    """AXValue is 1 or 0 on an AXCheckBox (a switch is one too) and an AXRadioButton, and 2 when
+    mixed. No other role's value is taken for a state."""
+    elements = {
+        "switch": ("AXCheckBox", 1),
+        "box": ("AXCheckBox", 0),
+        "mixed": ("AXCheckBox", 2),
+        "radio": ("AXRadioButton", 1),
+        "field": ("AXTextField", 1),
+    }
+    monkeypatch.setattr(macos, "AS", SimpleNamespace(kAXRoleAttribute="role", kAXValueAttribute="value"))
+    monkeypatch.setattr(macos, "_ax_attr", lambda element, name: elements[element][0 if name == "role" else 1])
+    monkeypatch.setattr(macos, "_ax_label", lambda element: element)
+    monkeypatch.setattr(macos, "_ax_frame", lambda element: None)
+    checked = {element: macos._ax_attrs(element).checked for element in elements}
+    assert checked == {"switch": True, "box": False, "mixed": None, "radio": True, "field": None}

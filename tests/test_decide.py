@@ -129,6 +129,22 @@ def test_a_duplicated_label_names_its_row_and_a_unique_one_does_not(screen, make
     assert rows[5]["beside"] == ["Coldplay", "Oct 2"] and "beside" not in rows[3]
 
 
+def test_a_switch_tells_the_classifier_whether_it_is_on(screen, make_item):
+    """OSWorld's chrome/030eeff7: with nothing saying the Do Not Track switch was already on, the
+    classifier clicked it once more, and turned it off."""
+    items = [
+        replace(make_item(0, "Send a Do Not Track request", y1=100, y2=130), role="checkbox", source="ax", checked=True),
+        replace(make_item(1, "Block third-party cookies", y1=140, y2=170), role="radio", source="ax", checked=False),
+        replace(make_item(2, "Advanced", y1=180, y2=210), role="button", source="ax"),
+    ]
+    crit = item_criteria(screen, items)
+    assert crit["0"] == "checkbox 'Send a Do Not Track request' (top-left; on)"
+    assert crit["1"] == "radio 'Block third-party cookies' (top-left; off)"
+    assert crit["2"] == "button 'Advanced' (top-left)"
+    rows = base_state("enable Do Not Track", screen, items, [])["screen_items_in_reading_order"]
+    assert [row.get("state") for row in rows] == ["on", "off", None]
+
+
 def test_a_control_parked_far_off_the_display_still_gets_a_region(screen, make_item):
     above = make_item(0, "note row", x1=100, y1=-98_000, x2=400, y2=-97_970)
     below = make_item(1, "scrolled link", x1=3_000, y1=5_000, x2=3_400, y2=5_030)

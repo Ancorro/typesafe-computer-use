@@ -65,6 +65,7 @@ class AxAttrs(NamedTuple):
     role: str
     label: str
     frame: Frame | None
+    checked: bool | None = None  # whether a checkbox, switch, or radio button is on; None for anything else
 
 
 def off_display(frame: Frame | None, display_w_pt: float, display_h_pt: float) -> bool:
@@ -120,14 +121,14 @@ def clickable(frame: Frame | None) -> bool:
 def descendant_label(kids: list, children: Callable, attrs: Callable[..., AxAttrs]) -> str:
     """The first static text within two levels, which is where list rows hide their label."""
     for kid in kids[:AX_FANOUT]:
-        role, label, _ = attrs(kid)
-        if role == "AXStaticText" and label:
-            return label
+        found = attrs(kid)
+        if found.role == "AXStaticText" and found.label:
+            return found.label
     for kid in kids[:AX_FANOUT]:
         for grandkid in list(children(kid))[:AX_FANOUT]:
-            role, label, _ = attrs(grandkid)
-            if role == "AXStaticText" and label:
-                return label
+            found = attrs(grandkid)
+            if found.role == "AXStaticText" and found.label:
+                return found.label
     return ""
 
 
@@ -171,7 +172,7 @@ def walk_actionable(
             continue
         visited.add(identity)
         seen += 1
-        role, own_label, frame = attrs(node)
+        role, own_label, frame, checked = attrs(node)
         if role in AX_SKIP_SUBTREE_ROLES:
             continue
         key = subtree_key(role, own_label, frame)
@@ -202,11 +203,13 @@ def walk_actionable(
                 pressable = AX_PRESS in actions(node)
                 if pressable or role in AX_ACTIONABLE_ROLES:
                     x, y, w, h = frame
-                    found.append(AxNode(role=role, label=label, x=x, y=y, w=w, h=h, pressable=pressable, ref=node))
+                    found.append(
+                        AxNode(role=role, label=label, x=x, y=y, w=w, h=h, pressable=pressable, checked=checked, ref=node)
+                    )
                     emitted = True
             elif frame is not None and len(offscreen) < offscreen_cap and AX_PRESS in actions(node):
                 x, y, w, h = frame
-                offscreen.append(AxNode(role=role, label=label, x=x, y=y, w=w, h=h, pressable=True, ref=node))
+                offscreen.append(AxNode(role=role, label=label, x=x, y=y, w=w, h=h, pressable=True, checked=checked, ref=node))
         child_label = own_label if role in AX_LABEL_PARENT_ROLES else ""
         queue.extend((kid, child_label, emitted, hidden, key) for kid in kids)
     return found, offscreen, False

@@ -1,6 +1,7 @@
 """The Windows adapter's pure rules. Nothing here touches Windows, so it runs everywhere."""
 
 import ctypes
+from types import SimpleNamespace
 
 import pytest
 
@@ -52,6 +53,24 @@ def test_an_invoke_pattern_is_pressable():
 def test_a_legacy_default_action_is_pressable():
     assert pressable(False, "Press")
     assert pressable(False, "Jump")
+
+
+def test_a_checkbox_toggles_and_a_radio_button_is_selected(monkeypatch):
+    """A checkbox is on when its TogglePattern says On (1), off at Off (0), and unknown when
+    indeterminate (2); a radio button is on when selected. No other role is asked."""
+    patterns = SimpleNamespace(TogglePattern="toggle", SelectionItemPattern="selection")
+    monkeypatch.setattr(windows, "auto", SimpleNamespace(PatternId=patterns))
+    elements = {
+        "on": {"toggle": SimpleNamespace(ToggleState=1)},
+        "off": {"toggle": SimpleNamespace(ToggleState=0)},
+        "mixed": {"toggle": SimpleNamespace(ToggleState=2)},
+        "picked": {"selection": SimpleNamespace(IsSelected=True)},
+    }
+    monkeypatch.setattr(windows, "_pattern", lambda element, pattern_id: elements.get(element, {}).get(pattern_id))
+    assert [windows._ui_checked(e, "AXCheckBox") for e in ("on", "off", "mixed")] == [True, False, None]
+    assert windows._ui_checked("picked", "AXRadioButton") is True
+    assert windows._ui_checked("on", "AXButton") is None
+    assert windows._ui_checked("gone", "AXCheckBox") is None  # an element with no pattern
 
 
 def test_the_legacy_pattern_alone_is_not_pressable():

@@ -528,6 +528,7 @@ def to_ax_items(nodes: list[AxNode], scale: float) -> list[Item]:
             y2=(node.y + node.h) * scale,
             role=node.role_word,
             source="ax",
+            checked=node.checked,
         )
         for i, node in enumerate(nodes)
     ]
@@ -566,7 +567,7 @@ def merge_with_origins(ocr_items: list[Item], ax_items: list[Item], budget: int 
         block = ocr_items[best]
         taken.add(best)
         text = control.text if len(control.text) >= len(block.text) else block.text
-        merged.append((replace(block, text=text, role=control.role, source="ax+ocr"), origin))
+        merged.append((replace(block, text=text, role=control.role, source="ax+ocr", checked=control.checked), origin))
     merged += [(block, None) for i, block in enumerate(ocr_items) if i not in taken and not is_icon(block, ax_items)]
     kept = [merged[i] for i in kept_by_budget([it for it, _ in merged], budget)]
     order = reading_order([it for it, _ in kept])

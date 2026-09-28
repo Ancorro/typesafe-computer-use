@@ -330,8 +330,18 @@ def _ax_frame(element) -> Frame | None:
     return float(pt.x), float(pt.y), float(sz.width), float(sz.height)
 
 
+CHECKABLE_ROLES = {"AXCheckBox", "AXRadioButton"}  # a switch is an AXCheckBox too, with a subrole of its own
+
+
+def checked_value(value) -> bool | None:
+    """A checkbox's or radio button's AXValue as on or off: 1 or 0. Mixed (2), or anything else, is unknown."""
+    return {0: False, 1: True}.get(value) if isinstance(value, int) else None
+
+
 def _ax_attrs(element) -> AxAttrs:
-    return AxAttrs(str(_ax_attr(element, AS.kAXRoleAttribute) or ""), _ax_label(element), _ax_frame(element))
+    role = str(_ax_attr(element, AS.kAXRoleAttribute) or "")
+    checked = checked_value(_ax_attr(element, AS.kAXValueAttribute)) if role in CHECKABLE_ROLES else None
+    return AxAttrs(role, _ax_label(element), _ax_frame(element), checked)
 
 
 def _ax_actions(element) -> list[str]:

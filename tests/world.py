@@ -41,7 +41,7 @@ OFFSCREEN_Y = -4200.0
 
 Step = tuple  # (kind, target) or (kind, target, confidence)
 Policy = Callable[[dict, dict], Step]
-Rows = list  # of str, or (text, role)
+Rows = list  # of str, or (text, role), or (text, role, on) for a checkbox or switch
 
 
 COLUMN_GAP = 10.0  # the gutter between two columns of one row, so their boxes do not touch
@@ -80,19 +80,22 @@ class Ref:
 
 @dataclass(frozen=True)
 class Cell:
-    """One item of the current page: its text, its role, the row it sits in, and its pixel box."""
+    """One item of the current page: its text, its role, the row it sits in, its pixel box, and
+    whether it is on, for a checkbox or switch."""
 
     text: str
     role: str
     row: int
     box: tuple[float, float, float, float]
+    checked: bool | None = None
 
 
 @dataclass
 class Page:
     """One screen of the simulated computer, and what each action does to it.
 
-    `items` are rows of text, or (text, role) for a control the app declares through accessibility.
+    `items` are rows of text, or (text, role) for a control the app declares through accessibility,
+    or (text, role, on) for a checkbox or switch that is on or off.
     A row that is a list holds several items side by side, laid out left to right across the row:
     ["Bruno Mars", "Sep 25", "Buy"] is one line of a listing. A page whose rows change on their own
     -- a clock, a ticker -- passes a callable(world) instead, which is asked again on every capture.
@@ -155,8 +158,8 @@ class World:
         for n, entry in enumerate(items):
             columns = entry if isinstance(entry, list) else [entry]
             for k, cell in enumerate(columns):
-                text, role = (cell, "") if isinstance(cell, str) else cell
-                out.append(Cell(text, role, n, cell_box(n, k, len(columns))))
+                text, role, checked = (cell, "", None) if isinstance(cell, str) else (*cell, None)[:3]
+                out.append(Cell(text, role, n, cell_box(n, k, len(columns)), checked))
         return out
 
     def click_action(self, cell: Cell, cells: list[Cell]) -> str:
@@ -228,7 +231,9 @@ class World:
         items = []
         cells = self.cells()
         for n, cell in enumerate(cells):
-            items.append(Item(n, cell.text, 1.0, *cell.box, role=cell.role, source="ax" if cell.role else "ocr"))
+            items.append(
+                Item(n, cell.text, 1.0, *cell.box, role=cell.role, source="ax" if cell.role else "ocr", checked=cell.checked)
+            )
             if cell.role:
                 screen.ax_refs[n] = self._ref(self.click_action(cell, cells))
         return items
