@@ -36,6 +36,9 @@ SLEEP_AFTER_EXECUTION=2.0
 JEV_MODEL=jev  # the name OSWorld files jev's results under
 JEV_OBSERVATION=screenshot_a11y_tree
 LUNA_MODEL=gpt-6-luna
+# The GPT runner's own default. It sets Luna's accuracy and cost more than anything else, so it is
+# named here, and each task's usage.json records it. OSWORLD_LUNA_EFFORT picks another.
+LUNA_EFFORT=${OSWORLD_LUNA_EFFORT:-xhigh}
 
 usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -310,9 +313,11 @@ run_luna() {
   version=$(shared_version "$@")
   meta=$(task_meta "$@")
   archive_earlier "$LUNA_MODEL" "$@"
-  # The observation type is left to the script's default.
-  run_in_checkout .venv/bin/python scripts/python/run_multienv_gpt_response_api.py \
+  # OSWorld's GPT runner as it ships, but for the proxy and the tokens (see its header). The
+  # observation type is left to its default, the screenshot.
+  run_in_checkout .venv/bin/python scripts/python/run_multienv_luna.py \
     --model "$LUNA_MODEL" \
+    --reasoning_effort "$LUNA_EFFORT" \
     --provider_name "$PROVIDER" \
     --max_steps "$MAX_STEPS" \
     --sleep_after_execution "$SLEEP_AFTER_EXECUTION" \
