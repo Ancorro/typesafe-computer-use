@@ -972,7 +972,7 @@ def test_l33_duplicate_labels_are_told_apart_by_their_row(monkeypatch, tmp_path)
     listing = world.fake.states[0]["screen_items_in_reading_order"]
     chosen = next(it for it in listing if it["text"] == "Buy" and "Coldplay" in it.get("beside", []))
     assert chosen["beside"] == ["Coldplay", "Oct 2"]
-    assert "in the row of 'Coldplay', 'Oct 2'" in world.fake.asked[0]["item"].criteria[str(chosen["i"])]
+    assert world.fake.asked[0]["item"].criteria[str(chosen["i"])] == "'Buy'"  # the row is in the state, once
     unique = next(it for it in listing if it["text"] == "Coldplay")
     assert "beside" not in unique  # nothing else on screen reads 'Coldplay', so the row says nothing new
 

@@ -27,7 +27,7 @@ def wire(value) -> int:
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
 
 
-def test_a_captured_step_sends_an_eighth_less_and_loses_no_word():
+def test_a_captured_step_sends_three_tenths_less_and_loses_no_word():
     captured = json.loads(FIXTURE.read_text(encoding="utf-8"))
     sent = captured["state"]
     screen = Screen(
@@ -44,13 +44,18 @@ def test_a_captured_step_sends_an_eighth_less_and_loses_no_word():
     state = base_state(sent["goal"], screen, kept, sent["previous_actions"], sent["already_tried_on_this_screen"])
     state["now"] = sent["now"]  # the clock the step ran at
     state.update({key: sent[key] for key in ("current_focus", "focused_field")})
-    criteria = item_criteria(screen, kept)
+    criteria = item_criteria(kept)
     before, after = wire(sent) + wire(captured["item_criteria"]), wire(state) + wire(criteria)
-    assert after < 0.88 * before, f"{before} -> {after} bytes"
+    assert after < 0.70 * before, f"{before} -> {after} bytes"
 
-    # What went: the clock's date on the tabs and buttons under it, and symbols read off buttons.
+    # What went: the clock's date on the tabs and buttons under it, symbols read off buttons, and
+    # the options' second copy of where each item is and what is beside it.
     assert any("dated" in text for text in captured["item_criteria"].values())
     assert not any("dated" in text for text in criteria.values())
+    assert {"button 'Chrome'", "button 'You'", "other 'Privacy and security'"} <= set(criteria.values())
+    assert not any(part in text for text in criteria.values() for part in ("top-", "middle-", "bottom-", "row of"))
+    rows = state["screen_items_in_reading_order"]
+    assert all("where" in row for row in rows) and sum("beside" in row for row in rows) == 16
     gone = Counter(it.text for it in items) - Counter(it.text for it in kept)
     assert gone == Counter({"\u00d7": 2, "+": 2, "←": 1, "→": 1, "☆": 1, "……": 1, "▶": 1})
     # What stayed: every control, every word, and the window's own close box, which no control covers.
