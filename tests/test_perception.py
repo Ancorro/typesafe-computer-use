@@ -241,7 +241,8 @@ def settings_search(monkeypatch, field: Field | None) -> list[str]:
 
 
 def test_the_text_in_the_focused_field_is_the_field_and_not_an_item_of_its_own(monkeypatch):
-    assert sorted(settings_search(monkeypatch, SEARCH)) == ["+", "Clear search", "Restore pages?", "Search settings", "Settings"]
+    # '+' goes too, as the icon OCR read off the 'Clear search' button, which stands for it.
+    assert sorted(settings_search(monkeypatch, SEARCH)) == ["Clear search", "Restore pages?", "Search settings", "Settings"]
 
 
 @pytest.mark.parametrize(
