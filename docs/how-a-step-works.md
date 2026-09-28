@@ -32,7 +32,9 @@ runner.py     ─► the actions already tried on this same screen, each of whic
 ```
 
 Items carry where they came from: `ocr` for a text block, `ax` for a control the app
-declared, `ax+ocr` when both found the same thing. An `ax` item reads as
+declared, `ax+ocr` when both found the same thing. A symbol OCR reads off a button or
+link, `←` on Back or `☆` on the bookmark star, is that control's icon, and the control
+stands for it: two options for one click would only split the vote. An `ax` item reads as
 `button 'Share' (top-right)` in the criteria, so the classifier can tell a real control
 from a line of text. A label that appears more than once carries its row as well:
 `'Buy' (middle-right; in the row of 'Coldplay', 'Oct 2')`, since the label says nothing
