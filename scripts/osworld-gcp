@@ -379,8 +379,9 @@ follow() {
     done < <("${SSH[@]}" "${KEEPALIVE[@]}" --command "$tail_cmd" </dev/null 2>/dev/null || true)
     if ! alive "$pid"; then return 0; fi
     ((tries++ < RECONNECTS)) || die "lost the run's output $RECONNECTS times; it goes on on the machine: scripts/osworld-gcp attach"
+    # Waits grow to a minute, so the retries outlast a change of IAP grant, which takes minutes.
     say "the connection dropped; the run goes on on the machine, reconnecting"
-    sleep 5
+    sleep $((tries * 5 < 60 ? tries * 5 : 60))
   done
 }
 
