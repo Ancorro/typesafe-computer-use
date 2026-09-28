@@ -11,6 +11,7 @@ import ast
 import json
 import platform
 import sys
+import threading
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,7 +22,7 @@ from world import FakeTypeSafe, FakeWriter, scripted
 
 from typesafe_computer_use import runner
 from typesafe_computer_use.decide import Decision
-from typesafe_computer_use.osworld import ocr
+from typesafe_computer_use.osworld import ocr, tree
 from typesafe_computer_use.osworld.agent import SAVE_A11Y, JevAgent, describe
 from typesafe_computer_use.osworld.desktop import APP_PID, OSWorldDesktop
 from typesafe_computer_use.platform_adapter import current, host
@@ -297,6 +298,47 @@ def test_when_the_light_walk_fails_osworlds_fetch_stands_in_and_the_run_says_so(
     osworld = run_json(tmp_path)["osworld"]
     assert (osworld["tree"], osworld["tree_fallbacks"]) == ("jev-light", 2)
     assert "No module named 'gi'" in osworld["tree_fallback_reasons"][0]
+
+
+class HungVM(VM):
+    """A VM that stops answering every tree request, until the test ends."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = threading.Event()
+
+    def run_python_script(self, script: str, timeout: float = 90) -> dict:
+        self.walks += 1
+        self.release.wait(STEP_SECONDS)
+        return {"status": "error", "output": "", "error": "too late"}
+
+    def get_accessibility_tree(self) -> str:
+        self.full_fetches += 1
+        self.release.wait(STEP_SECONDS)
+        return self.xml
+
+
+def test_a_vm_that_stops_answering_costs_a_step_its_tree_and_not_the_run(jev, tmp_path, monkeypatch):
+    """chrome/2ad9387a: after a click on Chrome's menu, OSWorld's tree request never came back, and the
+    run hung on it. Each request now has a deadline, and the step goes on with OCR alone."""
+    monkeypatch.delenv("JEV_OSWORLD_TREE_CHECK", raising=False)
+    monkeypatch.setattr(tree, "LIGHT_SECONDS", 0.1)
+    monkeypatch.setattr(tree, "FULL_SECONDS", 0.1)
+    vm = HungVM()
+    try:
+        lines = [("Sign in", 0.99, (800.0, 500.0, 900.0, 530.0))]
+        agent = jev(scripted(("click_item", "Sign in")), lines=lines, controller=lambda: vm)
+        response, actions = agent.predict(GOAL, obs(tree=None))
+        assert actions == ["pyautogui.click(850, 515)"], "OCR alone carried the decision"
+        assert response == "click_item 'Sign in' (0.90)"
+        agent.predict(GOAL, obs(tree=None))
+        finish(agent)
+    finally:
+        vm.release.set()
+    osworld = run_json(tmp_path)["osworld"]
+    assert osworld["tree_missing"] == osworld["tree_fetches"] == osworld["tree_fallbacks"] >= 1
+    first = json.loads((tmp_path / "jev" / "step-001-answers.json").read_text())
+    assert (first["app"], first["url"], first["field"]) == ("", None, None)
 
 
 def test_a_check_run_is_labelled_as_one_and_records_what_it_found(jev, tmp_path, monkeypatch):

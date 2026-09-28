@@ -12,7 +12,9 @@ import ast
 import copy
 import logging
 import threading
+import time
 from collections import Counter
+from functools import partial
 from io import BytesIO
 from pathlib import Path
 
@@ -291,6 +293,74 @@ def test_a_failed_walk_falls_back_to_osworlds_fetch_and_says_why(reply, why, cap
     assert not fetched.light and why in fetched.fallback
     assert controller.full_fetches == 1 and fetched.xml == FULL_XML and fetched.root is not None
     assert any("OSWorld's full fetch stands in" in record.getMessage() for record in caplog.records)
+
+
+class Hung:
+    """OSWorld's controller over a VM that stops answering: a call held here returns only when the test
+    lets it go, whatever timeout it was given, as OSWorld's tree request did on chrome/2ad9387a."""
+
+    def __init__(self, light: bool, full: bool) -> None:
+        self.light, self.full = light, full
+        self.release = threading.Event()
+
+    def run_python_script(self, script: str, timeout: float = 90) -> dict:
+        if self.light:
+            self.release.wait(WAIT)
+            return {"status": "error", "output": "", "error": "too late"}
+        return {"status": "error", "output": "", "error": "Traceback ...\nRuntimeError: no desktop"}
+
+    def get_accessibility_tree(self) -> str:
+        if self.full:
+            self.release.wait(WAIT)
+        return FULL_XML
+
+
+@pytest.fixture
+def hung():
+    made: list[Hung] = []
+
+    def make(*, light: bool, full: bool) -> Hung:
+        made.append(Hung(light, full))
+        return made[-1]
+
+    yield make
+    for controller in made:
+        controller.release.set()
+
+
+def timed_fetch(controller) -> tuple[tree.Fetched, float]:
+    started = time.perf_counter()
+    fetched = tree.fetch(controller, timeout=0.2, full_timeout=0.3)
+    return fetched, time.perf_counter() - started
+
+
+def test_a_light_walk_that_never_answers_gives_way_to_osworlds_fetch_in_time(hung):
+    fetched, seconds = timed_fetch(hung(light=True, full=False))
+    assert seconds < 2.0
+    assert not fetched.light and fetched.fallback == "the light walk gave no answer in 0.2 s"
+    assert fetched.xml == FULL_XML and fetched.root is not None
+
+
+def test_osworlds_fetch_that_never_answers_leaves_the_step_without_a_tree_in_time(hung):
+    """The light walk failed, and OSWorld's fetch, which asks with no timeout, never came back: the step
+    goes on with no tree rather than waiting for it."""
+    fetched, seconds = timed_fetch(hung(light=False, full=True))
+    assert seconds < 2.0
+    assert fetched.xml is None and fetched.root is None and not fetched.light
+    assert "no desktop" in fetched.fallback and "OSWorld's fetch brought none either" in fetched.fallback
+    assert tree.summary([fetched])["tree_missing"] == 1
+
+
+def test_with_both_hung_a_read_of_the_tree_waits_no_longer_than_both_deadlines(hung):
+    controller = hung(light=True, full=True)
+    fetch = partial(tree.fetch, controller, timeout=0.2, full_timeout=0.3)
+    desktop = OSWorldDesktop(observation(), lambda image: [], lambda actions: observation(), fetch_tree=fetch)
+    started = time.perf_counter()
+    assert desktop.frontmost_app_and_pid() == ("", 1), "no tree: the app is unknown, and OCR still reads the screen"
+    assert desktop.focused_field() is None and desktop.actionable_elements(1, 1920, 1080) == ([], [], False)
+    assert time.perf_counter() - started < 2.0
+    (fetched,) = desktop.fetched
+    assert fetched.root is None
 
 
 def test_a_check_compares_the_light_tree_with_osworlds_on_a_screen_that_held_still():

@@ -10,8 +10,13 @@ writes, so `a11y.py` reads either one.
 
 When the light walk fails, times out, or declines (a spreadsheet, a tree past its node cap), the
 tree comes from OSWorld's own fetch instead, and the fallback is logged and counted in the run's
-`run.json`. `JEV_OSWORLD_TREE_CHECK=1` also fetches OSWorld's tree after each light one, and the
-light one again after that, and records whether what jev reads of the two trees matches: the app,
+`run.json`. Neither may hold up the run: OSWorld's controller asks for its tree with no timeout at
+all, and on chrome/2ad9387a, after a click on Chrome's menu, that request never came back. So each
+call on the controller runs on a thread of its own, with a deadline, and when both miss theirs the
+step has no tree, which `a11y.py` reads as nothing known, and OCR still reads the screen.
+
+`JEV_OSWORLD_TREE_CHECK=1` also fetches OSWorld's tree after each light one, and the light one
+again after that, and records whether what jev reads of the two trees matches: the app,
 the window, the focused field, the URL, and every control with its box. The second light walk says
 whether the screen held still in between, which a check is worth nothing without. It makes each
 step slower, so it is for a check run, not a benchmark.
@@ -25,8 +30,10 @@ import functools
 import logging
 import os
 import statistics
+import threading
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
@@ -37,7 +44,11 @@ from . import a11y, light_walk
 LIGHT = "jev-light"  # the trees came from jev's walk, or from OSWorld's fetch where that one failed
 LIGHT_CHECKED = "jev-light-checked"  # the same, each checked against OSWorld's: its times are no benchmark
 OSWORLD = "osworld"  # the trees came with OSWorld's observations
-LIGHT_SECONDS = 15.0  # how long the light walk may take before OSWorld's fetch stands in: 5,000 nodes take 2 s
+# How long the light walk may take before OSWorld's fetch stands in: 5,000 nodes take 2 s. It is the
+# request's own timeout, and the deadline too: the controller tries a dropped connection again, for as
+# long as it takes.
+LIGHT_SECONDS = 10.0
+FULL_SECONDS = 20.0  # how long OSWorld's own fetch may take, which asks with no timeout, before the step goes without
 NODE_CAP = 20_000  # past this many nodes the walk stops, and OSWorld's fetch stands in: a tree that big is a runaway
 CHECK = "JEV_OSWORLD_TREE_CHECK"  # "1" checks each light tree against OSWorld's on the same screen
 CHECK_DISPLAY = (1920.0, 1080.0)  # the display a check walks for controls; both trees are walked on the same one
@@ -99,23 +110,73 @@ class Missed(RuntimeError):
     """The light walk brought no tree; the message says why."""
 
 
-def fetch(controller: Controller, *, timeout: float = LIGHT_SECONDS, check: bool = False) -> Fetched:
-    """The tree of the screen as it is now: jev's light walk, or OSWorld's fetch when that fails."""
+class Later:
+    """A value made on a daemon thread of its own, or one given at once. `result()` waits for it and
+    raises what making it raised; `wait()` only waits, for `seconds` at most when given, and says
+    whether it came. A daemon, so a call that never returns holds up no exit."""
+
+    def __init__(self, make: Callable[[], object] | None = None, *, value: object = None) -> None:
+        self._done = threading.Event()
+        self._value, self._error = value, None
+        if make is None:
+            self._done.set()
+        else:
+            threading.Thread(target=self._make, args=(make,), name="jev-osworld-tree", daemon=True).start()
+
+    def _make(self, make: Callable[[], object]) -> None:
+        try:
+            self._value = make()
+        except BaseException as error:
+            self._error = error
+        finally:
+            self._done.set()
+
+    def wait(self, seconds: float | None = None) -> bool:
+        return self._done.wait(seconds)
+
+    def result(self):
+        self._done.wait()
+        if self._error is not None:
+            raise self._error
+        return self._value
+
+
+def within(seconds: float, call: Callable[[], object], what: str):
+    """`call()`, or TimeoutError once `seconds` pass without it. The call goes on, unheeded, on a daemon
+    thread: nothing can stop a request in flight, but nothing need wait for it either."""
+    later = Later(call)
+    if not later.wait(seconds):
+        raise TimeoutError(f"{what} gave no answer in {seconds:g} s")
+    return later.result()
+
+
+def fetch(
+    controller: Controller, *, timeout: float | None = None, full_timeout: float | None = None, check: bool = False
+) -> Fetched:
+    """The tree of the screen as it is now: jev's light walk, or OSWorld's fetch when that fails, or
+    none, when that fails too. `timeout` and `full_timeout` default to `LIGHT_SECONDS` and
+    `FULL_SECONDS` as they stand when the fetch starts."""
+    timeout = LIGHT_SECONDS if timeout is None else timeout
+    full_timeout = FULL_SECONDS if full_timeout is None else full_timeout
     started = time.perf_counter()
     try:
         xml, root = light(controller, timeout)
     except Missed as miss:
         log.warning("jev's light tree walk failed (%s); OSWorld's full fetch stands in", miss)
-        full = full_tree(controller)
-        return Fetched(full, a11y.parse(full), time.perf_counter() - started, light=False, fallback=str(miss))
+        full = full_tree(controller, full_timeout)
+        fallback = str(miss) if full is not None else f"{miss}; and OSWorld's fetch brought none either"
+        return Fetched(full, a11y.parse(full), time.perf_counter() - started, light=False, fallback=fallback)
     fetched = Fetched(xml, root, time.perf_counter() - started, light=True)
-    return compare(controller, fetched, timeout) if check else fetched
+    return compare(controller, fetched, timeout, full_timeout) if check else fetched
 
 
 def light(controller: Controller, timeout: float = LIGHT_SECONDS) -> tuple[str, ET.Element]:
-    """The light walk's XML, and its root. Raises `Missed` when there is none."""
+    """The light walk's XML, and its root. Raises `Missed` when there is none, and within `timeout`,
+    whatever the controller does meanwhile."""
     try:
-        reply = controller.run_python_script(script(), timeout=timeout)
+        reply = within(timeout, lambda: controller.run_python_script(script(), timeout=timeout), "the light walk")
+    except TimeoutError as error:
+        raise Missed(str(error)) from error
     except Exception as error:  # the controller retries a dropped connection itself; past that, it is a miss
         raise Missed(f"the request raised {error!r}") from error
     if not isinstance(reply, dict):
@@ -130,12 +191,13 @@ def light(controller: Controller, timeout: float = LIGHT_SECONDS) -> tuple[str, 
     return output, root
 
 
-def full_tree(controller: Controller) -> str | None:
-    """OSWorld's own fetch of the whole desktop. It retries by itself, and says None when it fails."""
+def full_tree(controller: Controller, timeout: float = FULL_SECONDS) -> str | None:
+    """OSWorld's own fetch of the whole desktop, or None when it fails or takes past `timeout`. It
+    retries by itself, and asks with no timeout of its own."""
     try:
-        return controller.get_accessibility_tree()
+        return within(timeout, controller.get_accessibility_tree, "OSWorld's tree fetch")
     except Exception as error:
-        log.warning("OSWorld's tree fetch raised %r", error)
+        log.warning("OSWorld's tree fetch failed: %s", error)
         return None
 
 
@@ -172,11 +234,11 @@ def differences(light_view: dict, full_view: dict) -> dict:
     return out
 
 
-def compare(controller: Controller, fetched: Fetched, timeout: float) -> Fetched:
+def compare(controller: Controller, fetched: Fetched, timeout: float, full_timeout: float = FULL_SECONDS) -> Fetched:
     """`fetched` with OSWorld's tree of the same screen, and whether jev reads the two alike. A second
     light walk after OSWorld's fetch says whether the screen held still across it."""
     started = time.perf_counter()
-    full = full_tree(controller)
+    full = full_tree(controller, full_timeout)
     full_seconds = time.perf_counter() - started
     full_root = a11y.parse(full)
     ours, theirs = view(fetched.root), view(full_root)
@@ -212,6 +274,7 @@ def summary(fetched: list[Fetched]) -> dict:
     out: dict = {
         "tree_fetches": len(fetched),
         "tree_fallbacks": len(fallbacks),
+        "tree_missing": sum(f.root is None for f in fetched),  # steps that went without a tree
         "tree_seconds": _spread([f.seconds for f in fetched]),
         "tree_nodes": _spread([f.nodes for f in fetched]),
     }

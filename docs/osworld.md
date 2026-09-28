@@ -104,12 +104,16 @@ window keeps, and the step reads the screen again itself when the tree says othe
 to OSWorld only once the fetch before them is over. OSWorld's 2 s wait and its `env.step` for every
 action stay as they were, so the tree's time moves from OSWorld's step into jev's own.
 
-When the light walk fails, takes longer than 15 s, or leaves the tree to OSWorld (a spreadsheet,
+When the light walk fails, takes longer than 10 s, or leaves the tree to OSWorld (a spreadsheet,
 whose cells OSWorld's walk picks out by hand, or a runaway of more than 20,000 nodes), OSWorld's own
-fetch stands in, and a warning in OSWorld's log says why. jev's `run.json` records it under
-`osworld`: `tree` is `jev-light`, `tree_fetches` counts the fetches, `tree_fallbacks` those OSWorld's
-stood in for, with the reasons, and `tree_seconds` and `tree_nodes` give each one's mean and
-maximum.
+fetch stands in, and a warning in OSWorld's log says why. That fetch asks with no timeout, and on
+chrome/2ad9387a, after a click on Chrome's menu, it never came back and held the run up for good. So
+each request runs on a thread of its own with a deadline, 10 s for the light walk and 20 s for
+OSWorld's fetch, and when both miss, the step goes on with no tree: the app and the controls are
+unknown, and OCR still reads the screen. jev's `run.json` records it all under `osworld`: `tree` is
+`jev-light`, `tree_fetches` counts the fetches, `tree_fallbacks` those OSWorld's stood in for, with
+the reasons, `tree_missing` those that brought no tree at all, and `tree_seconds` and `tree_nodes`
+give each one's mean and maximum.
 
 `JEV_OSWORLD_TREE_CHECK=1` checks each light tree against OSWorld's on the same screen: after each
 light walk it fetches OSWorld's tree and walks again, and records under `tree_check` how many

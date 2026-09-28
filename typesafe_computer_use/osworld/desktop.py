@@ -31,7 +31,6 @@ never code. Nothing here touches this machine.
 
 from __future__ import annotations
 
-import threading
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from io import BytesIO
@@ -42,7 +41,7 @@ from PIL import Image
 from ..models import AxNode, Field
 from ..platform_adapter import OcrLine
 from . import a11y
-from .tree import Fetched
+from .tree import Fetched, Later
 
 NextObs = Callable[[list[str]], dict]  # hands a step's actions to OSWorld, returns the next observation
 FetchTree = Callable[[], Fetched]  # fetches the VM's tree as it is now
@@ -96,9 +95,9 @@ class OSWorldDesktop:
         if self._fetch_tree is None:
             xml = obs.get("accessibility_tree")
             self._save(index, xml)
-            self._tree = _Later(value=a11y.parse(xml))
+            self._tree = Later(value=a11y.parse(xml))
         else:
-            self._tree = _Later(lambda: self._fetch(index))
+            self._tree = Later(lambda: self._fetch(index))
 
     def _fetch(self, index: int) -> ET.Element | None:
         """On the fetching thread: one observation's tree, recorded and saved."""
@@ -245,37 +244,6 @@ class OSWorldDesktop:
 
     def ax_value(self, ref) -> str | None:
         return None
-
-
-class _Later:
-    """A value made on a daemon thread of its own, or one given at once. `result()` waits for it and
-    raises what making it raised; `wait()` only waits. A daemon, so a VM that never answers holds up
-    no exit."""
-
-    def __init__(self, make: Callable[[], object] | None = None, *, value: object = None) -> None:
-        self._done = threading.Event()
-        self._value, self._error = value, None
-        if make is None:
-            self._done.set()
-        else:
-            threading.Thread(target=self._make, args=(make,), name="jev-osworld-tree", daemon=True).start()
-
-    def _make(self, make: Callable[[], object]) -> None:
-        try:
-            self._value = make()
-        except BaseException as error:
-            self._error = error
-        finally:
-            self._done.set()
-
-    def wait(self) -> None:
-        self._done.wait()
-
-    def result(self):
-        self._done.wait()
-        if self._error is not None:
-            raise self._error
-        return self._value
 
 
 def _browser_code(url: str | None) -> str:
