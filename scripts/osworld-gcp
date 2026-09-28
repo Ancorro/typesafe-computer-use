@@ -491,7 +491,9 @@ case "${1:-}" in
     read -r name pid <<<"$(latest_run)"
     [[ -n ${pid:-} ]] || die "no run has started on the machine"
     # The run is its own session, so its process group holds the runner and everything it started.
-    run "${SSH[@]}" --command "sudo -u $REMOTE_USER kill -TERM -- -$pid 2>/dev/null && echo stopped $name || echo $name had already ended" </dev/null
+    # A task VM the runner was starting when it stopped outlives it, so the task VMs go too: the
+    # machine runs nothing else in Docker.
+    run "${SSH[@]}" --command "sudo -u $REMOTE_USER kill -TERM -- -$pid 2>/dev/null && echo stopped $name || echo $name had already ended; sleep 5; ids=\$(sudo docker ps -q); [ -z \"\$ids\" ] || sudo docker rm -f \$ids >/dev/null && echo removed the task VMs" </dev/null
     ;;
   _rsh)
     # rsync's remote shell: `HOST COMMAND...` (and -l USER, which is unused) to gcloud compute ssh.
