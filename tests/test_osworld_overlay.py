@@ -147,8 +147,11 @@ def test_the_script_parses(processes):
 
 
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck is not installed")
-def test_the_script_passes_shellcheck(processes):
-    subprocess.run(["shellcheck", str(SCRIPT)], check=True)
+def test_the_scripts_pass_shellcheck(processes):
+    """CI runs shellcheck on these too; running it here catches a warning before a push does."""
+    subprocess.run(
+        ["shellcheck", str(SCRIPT), str(REPO / "scripts" / "osworld-gcp"), str(REPO / "infra" / "gcp" / "startup.sh")], check=True
+    )
 
 
 @pytest.fixture

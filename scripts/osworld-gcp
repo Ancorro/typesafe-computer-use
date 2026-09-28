@@ -363,7 +363,8 @@ start_detached() {
 # Print a detached run's log here until the run ends, reconnecting when the stream drops. Each
 # reconnect starts after the last line already shown.
 follow() {
-  local name=$1 pid=$2 shown=0 tries=0 line log="$REMOTE_DIR/$RUNS_DIR/$name.log"
+  local name=$1 pid=$2 shown=0 tries=0 line log
+  log="$REMOTE_DIR/$RUNS_DIR/$name.log"
   local tail_cmd
   while :; do
     tail_cmd="sudo -u $REMOTE_USER tail -n +$((shown + 1)) -F --pid=$pid $log 2>/dev/null"

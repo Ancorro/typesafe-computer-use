@@ -103,7 +103,9 @@ def test_the_cloud_run_lives_on_the_machine_not_in_the_connection(tmp_path):
     printed = dry_run(tmp_path, "run-jev", "chrome/a", "--ocr", "rapidocr")
     assert "setsid nohup bash -c" in printed, "the run is its own session on the machine"
     assert ".osworld/runs/" in printed and ".status" in printed, "its log and exit status stay on the machine"
-    assert "tail -n +1 -F --pid=4242" in printed, "and this end follows its log"
+    assert re.search(r"tail -n \+1 -F --pid=4242 /opt/typesafe-computer-use/\.osworld/runs/\d{8}T\d{6}Z\.log", printed), (
+        "and this end follows that run's own log"
+    )
     assert "ServerAliveInterval=15" in printed, "noticing a stalled stream instead of hanging on it"
 
 
@@ -151,7 +153,9 @@ def test_the_cloud_run_records_its_rows_with_the_git_state_it_synced(tmp_path):
 
 
 def test_attach_follows_the_newest_run_and_cancel_stops_its_whole_session(tmp_path):
-    assert "tail -n +1 -F --pid=4242" in dry_run(tmp_path / "a", "attach")
+    assert "tail -n +1 -F --pid=4242 /opt/typesafe-computer-use/.osworld/runs/20260101T000000Z.log" in dry_run(
+        tmp_path / "a", "attach"
+    )
     assert "kill -TERM -- -4242" in dry_run(tmp_path / "b", "cancel")
 
 
