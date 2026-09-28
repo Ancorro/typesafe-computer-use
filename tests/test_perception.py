@@ -106,6 +106,29 @@ def test_merge_consumes_each_ocr_block_at_most_once():
     assert sorted(it.source for it in merged) == ["ax", "ax+ocr"]
 
 
+def test_merge_lets_a_button_or_link_stand_for_the_symbol_read_off_its_icon():
+    blocks = [ocr_item(0, "\u00d7", 1893, 43, 1901, 51), ocr_item(1, "▶", 1305, 458, 1309, 466)]
+    controls = [ax_item(0, "Close", 1882, 27, 1920, 62), ax_item(1, "Security", 1291, 446, 1323, 479, role="link")]
+    assert [(it.text, it.source) for it in merge_sources(blocks, controls)] == [("Close", "ax"), ("Security", "ax")]
+
+
+def test_merge_keeps_a_symbol_on_a_tab_or_a_row_and_any_read_with_a_letter_or_digit():
+    blocks = [
+        ocr_item(0, "\u00d7", 300, 40, 310, 50),  # a tab's close box: a target of its own
+        ocr_item(1, "+", 100, 240, 110, 250),  # on a row, which holds more than one target
+        ocr_item(2, "C", 164, 84, 170, 96),  # a letter is text, even when it is an icon misread
+        ocr_item(3, "25", 1300, 500, 1320, 520),  # the value a field shows
+        ocr_item(4, "☆", 900, 900, 910, 910),  # on no control at all
+    ]
+    controls = [
+        ax_item(0, "Settings", 130, 30, 320, 60, role="tab"),
+        ax_item(1, "Downloads", 90, 230, 1000, 260, role="cell"),
+        ax_item(2, "Reload", 147, 73, 181, 107),
+        ax_item(3, "Show per page", 1290, 490, 1400, 530, role="field"),
+    ]
+    assert len(merge_sources(blocks, controls)) == len(blocks) + len(controls)
+
+
 def test_merge_numbers_everything_in_reading_order():
     blocks = [ocr_item(0, "below", 100, 300, 200, 330), ocr_item(1, "right", 800, 100, 900, 130)]
     controls = [ax_item(0, "left", 100, 105, 200, 135)]

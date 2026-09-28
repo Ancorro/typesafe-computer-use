@@ -8,6 +8,7 @@ from PIL import Image
 
 TEXT_ROLES = {"AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"}
 Box = tuple[float, float, float, float]  # x1, y1, x2, y2 in capture pixels
+MENU_BAR_PT = 40.0  # the strip along the top of the display, above every window: the menu bar, or Ubuntu's top bar
 
 # Accessibility roles as one human word. Anything unlisted is "other".
 ROLE_WORDS = {
@@ -222,6 +223,10 @@ class Screen:
         col = ["left", "center", "right"][max(0, min(2, int(3 * cx / self.image.width)))]
         row = ["top", "middle", "bottom"][max(0, min(2, int(3 * cy / self.image.height)))]
         return f"{row}-{col}"
+
+    def in_menu_bar(self, item: Item) -> bool:
+        """Whether the item sits in the strip along the top of the display, where the clock is."""
+        return item.center[1] < MENU_BAR_PT * self.scale
 
     def to_points(self, item: Item) -> tuple[float, float]:
         cx, cy = item.center
