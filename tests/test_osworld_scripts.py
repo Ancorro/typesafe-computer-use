@@ -152,6 +152,42 @@ def test_the_cloud_run_records_its_rows_with_the_git_state_it_synced(tmp_path):
     assert '"git_commit"' in line and '"git_dirty"' in line and '"command": "run-jev chrome/a --ocr rapidocr"' in line
 
 
+def provenance(repo: Path) -> dict:
+    """scripts/osworld-gcp's provenance(), run alone in `repo`, as the JSON it prints."""
+    unsynced = re.search(r"^UNSYNCED=\(.*\)$", OSWORLD_GCP.read_text(), re.M)
+    assert unsynced, "osworld-gcp has no UNSYNCED"
+    source = "\n".join(function(OSWORLD_GCP, name) for name in ("provenance", "diff_digest"))
+    out = subprocess.run(
+        ["bash", "-c", f"set -euo pipefail; INSTANCE=m\n{unsynced.group(0)}\n{source}\nprovenance run1 'run-luna chrome/a'"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=repo,
+    )
+    return json.loads(out.stdout)
+
+
+def test_a_run_reads_as_changed_for_new_code_but_not_for_the_rows_of_earlier_runs(tmp_path):
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(tmp_path), *args], capture_output=True, check=True)
+
+    git("init", "-q")
+    (tmp_path / "code.py").write_text("x = 1\n")
+    git("add", "code.py")
+    git("-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "-qm", "code")
+    rows = tmp_path / "benchmarks" / "osworld"
+    rows.mkdir(parents=True)
+    (rows / "20260928T060716Z.jsonl").write_text('{"score": 1.0}\n')
+
+    clean = provenance(tmp_path)
+    assert (clean["git_dirty"], clean["git_diff_sha256"]) == (False, None), "a rows file is a record, not code"
+    assert clean["command"] == "run-luna chrome/a" and clean["machine"] == "m"
+
+    (tmp_path / "code.py").write_text("x = 2\n")
+    changed = provenance(tmp_path)
+    assert changed["git_dirty"] is True and re.fullmatch(r"[0-9a-f]{64}", changed["git_diff_sha256"])
+
+
 def test_attach_follows_the_newest_run_and_cancel_stops_its_whole_session(tmp_path):
     assert "tail -n +1 -F --pid=4242 /opt/typesafe-computer-use/.osworld/runs/20260101T000000Z.log" in dry_run(
         tmp_path / "a", "attach"
