@@ -11,7 +11,7 @@
 #   scripts/osworld-gcp watch                        forward the task VM's screen; prints the URL
 #   scripts/osworld-gcp status                       running or stopped, and since when
 #   scripts/osworld-gcp stop                         stop the machine now; its disk stays
-#   scripts/osworld-gcp pull-results                 copy every result on the machine into results/
+#   scripts/osworld-gcp pull-results                 start it if stopped, copy every result on it into results/
 #   scripts/osworld-gcp ssh [-- COMMAND]             a shell on the machine, or one command, for debugging
 #   scripts/osworld-gcp down                         destroy the machine and all infra/gcp made
 #
@@ -293,6 +293,7 @@ run_task() {
   pid=$(start_detached "$name" "scripts/osworld $command$args")
   say "the run is $name on the machine; Ctrl-C here stops only the following: scripts/osworld-gcp attach follows it again, cancel stops it"
   follow "$name" "$pid" || status=$?
+  restart_if_stopped_under "$status"
   $DRY_RUN || [[ $status -ne 0 ]] || status=$(run_status "$name")
 
   pull_results || say "no results came back"
@@ -344,6 +345,7 @@ record() {
 RUNS_DIR=.osworld/runs
 KEEPALIVE=(--ssh-flag=-oServerAliveInterval=15 --ssh-flag=-oServerAliveCountMax=4) # a stalled stream ends in a minute
 RECONNECTS=${OSWORLD_GCP_RECONNECTS:-20}
+STOPPED_UNDER_RUN=3 # follow's status when the machine stopped during the run, and the run with it
 
 # The shell command that starts COMMAND in DIR as its own session, immune to the connection that
 # ran it, and prints its process id. Its output goes to RUNS_DIR/NAME.log, its process id to
@@ -362,7 +364,9 @@ start_detached() {
 }
 
 # Print a detached run's log here until the run ends, reconnecting when the stream drops. Each
-# reconnect starts after the last line already shown.
+# reconnect starts after the last line already shown. A machine that stopped under the run, as
+# Google may stop a Spot machine at any time, took the run with it: there is nothing to reconnect
+# to, so that returns STOPPED_UNDER_RUN at once.
 follow() {
   local name=$1 pid=$2 shown=0 tries=0 line log
   log="$REMOTE_DIR/$RUNS_DIR/$name.log"
@@ -378,6 +382,12 @@ follow() {
       shown=$((shown + 1))
     done < <("${SSH[@]}" "${KEEPALIVE[@]}" --command "$tail_cmd" </dev/null 2>/dev/null || true)
     if ! alive "$pid"; then return 0; fi
+    case $(machine_status RUNNING || true) in
+      TERMINATED | STOPPED | STOPPING | SUSPENDED | SUSPENDING)
+        say "the machine stopped during the run, and the run ended with it (Google may stop a Spot machine at any time)"
+        return "$STOPPED_UNDER_RUN"
+        ;;
+    esac
     ((tries++ < RECONNECTS)) || die "lost the run's output $RECONNECTS times; it goes on on the machine: scripts/osworld-gcp attach"
     say "the connection dropped; the run goes on on the machine, reconnecting"
     sleep 5
@@ -390,6 +400,16 @@ alive() {
   local answer
   answer=$("${SSH[@]}" "${KEEPALIVE[@]}" --command "kill -0 $1 2>/dev/null && echo alive || echo ended" </dev/null 2>/dev/null | tr -d '\r' | tail -n 1) || true
   [[ $answer != ended ]]
+}
+
+# After a run the machine stopped under (follow's status $1 is STOPPED_UNDER_RUN), start it again:
+# the tasks that finished before it stopped are on its disk, and the pull brings them back. The rest
+# need a run of their own.
+restart_if_stopped_under() {
+  [[ $1 -eq $STOPPED_UNDER_RUN ]] || return 0
+  say "starting the machine again to bring back the tasks that finished before it stopped; the rest need another run"
+  start_if_stopped
+  wait_for_machine ready
 }
 
 # A finished run's exit status, from its NAME.status; 1 when it left none.
@@ -476,6 +496,8 @@ case "${1:-}" in
     ;;
   pull-results)
     load
+    start_if_stopped # the results are on its disk, which a stop keeps
+    wait_for_machine
     pull_results
     ;;
   attach)
@@ -483,8 +505,11 @@ case "${1:-}" in
     read -r name pid <<<"$(latest_run)"
     [[ -n ${pid:-} ]] || die "no run has started on the machine"
     say "following $name"
-    follow "$name" "$pid"
+    status=0
+    follow "$name" "$pid" || status=$?
+    restart_if_stopped_under "$status"
     pull_results || say "no results came back"
+    exit "$status"
     ;;
   cancel)
     load
