@@ -229,21 +229,21 @@ class World:
 
     def perceive(self, screen: Screen) -> list[Item]:
         """The rows as items, filling `screen.ax_refs` for the ones the app declared, `screen.covered`
-        for the ones under the page's popup, and `screen.within` for the popup's own.
+        for the ones under the page's popup, and `screen.popups` with the popup's own.
 
         A control under a popup is found in the tree but not pressed through it, as in an OSWorld VM:
         a press would reach it through the popup and leave nothing for the loop to get around.
         """
         screen.ax_refs.clear()
         screen.covered.clear()
-        screen.within.clear()
+        screen.popups.clear()
         items = []
         cells = self.cells()
         popup = self.popup(cells)
         for n, cell in enumerate(cells):
             items.append(Item(n, cell.text, 1.0, *cell.box, role=cell.role, source="ax" if cell.role else "ocr"))
             if popup is not None and cell.text in self.page.in_popup:
-                screen.within[n] = popup
+                screen.popups.setdefault(popup, []).append(cell.text)
             if popup is not None and cell.text in self.page.under_popup:
                 screen.covered[n] = popup
             elif cell.role:

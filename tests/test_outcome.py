@@ -102,7 +102,8 @@ def screen_of(
         for i, text in enumerate(texts)
     ]
     screen = Screen(image=Image.new("RGB", (2000, 1200)), scale=2.0, app=app, field=field, url=url, title=title)
-    screen.within.update({it.index: (within or {})[it.text] for it in items if it.text in (within or {})})
+    for text, popup in (within or {}).items():
+        screen.popups.setdefault(popup, []).append(text)
     return glance(screen, items)
 
 
@@ -195,6 +196,17 @@ def test_a_menu_the_modal_dialog_hid_did_not_open_when_the_dialog_closed():
     back = screen_of(["You and Google", "Autofill", "Google"], within=sidebar)
     assert change(screen_of(["You and Google", "Autofill"], within=sidebar), with_dialog) == "opened: dialog 'Search engine'"
     assert change(with_dialog, back) == "closed: dialog 'Search engine'"
+
+
+def test_a_menu_the_capture_has_not_drawn_yet_is_named_by_the_trees_items():
+    """chrome/2ad9387a: the tree had Organise's six items while the capture showed one, and a line
+    naming the menu by that one read to the answer model as the wrong menu."""
+    labels = ["Sort by name", "Add new bookmark", "Add new folder", "Import bookmarks", "Export bookmarks", "Help Centre"]
+    lagging = screen_of([*PAGE, "Sort by name"], within=dict.fromkeys(labels, POPUP), controls=frozenset({"Sort by name"}))
+    assert (
+        change(screen_of(PAGE, controls=frozenset({"Organise"})), lagging)
+        == "opened: menu ('Sort by name', 'Add new bookmark', …)"
+    )
 
 
 def test_two_menus_with_no_name_are_told_apart_by_their_items():

@@ -94,11 +94,12 @@ def perceive(
     Fills `screen.ax_refs` on the way, so an item that came from the accessibility tree can be
     pressed through it later. The merge renumbers everything, hence the side table over the
     final indices rather than a handle on the item itself, which has to stay printable.
-    `screen.covered` is a side table the same way: the items under a popup, and which popup. So is
-    `screen.within`: the items that are part of a popup, and which.
+    `screen.covered` is a side table the same way: the items under a popup, and which popup.
 
     Fills `screen.offscreen` too: labelled controls the app exposes but does not show. They are
-    offered on their own, never as items, because nothing on the capture points at them.
+    offered on their own, never as items, because nothing on the capture points at them. And
+    `screen.popups`: each popup the tree shows, with its controls' labels, whether or not the
+    capture has drawn them yet (see `outcome`).
 
     A `cache` carries the previous capture's OCR, so only the tiles that changed are read again.
     Pass None to read the whole region every time, which is what a replay and an inspection do.
@@ -107,6 +108,10 @@ def perceive(
         blocks = ocr(screen, budget, goal, cache, timing)
     with phase(timing, "ax"):
         nodes, hidden = ax_nodes(screen, budget)
+        screen.popups.clear()
+        for node in nodes:
+            if node.within is not None:
+                screen.popups.setdefault(node.within, []).append(node.label)
         gray = screen.image.convert("L")
         blank = [node for node in nodes if not drawn(gray, node, screen.scale)]
         nodes = [node for node in nodes if node not in blank]
@@ -119,8 +124,6 @@ def perceive(
     screen.covered.update(
         {it.index: nodes[origin].covered_by for it, origin in merged if origin is not None and nodes[origin].covered_by}
     )
-    screen.within.clear()
-    screen.within.update({it.index: nodes[origin].within for it, origin in merged if origin is not None and nodes[origin].within})
     items = [it for it, _ in merged]
     screen.offscreen.clear()
     screen.offscreen.extend(offscreen_controls(hidden, items))

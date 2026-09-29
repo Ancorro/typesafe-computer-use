@@ -50,14 +50,14 @@ class Glance:
 
 
 def glance(screen: Screen, items: list[Item]) -> Glance:
-    """The facts of one screen a history line is made of."""
-    members: dict[Popup, list[str]] = {}
-    for it in items:
-        popup = screen.within.get(it.index)
-        if popup is not None:
-            members.setdefault(popup, []).append(it.text)
+    """The facts of one screen a history line is made of.
+
+    A popup is the tree's, with all its controls, whether or not the capture has drawn them yet: a
+    capture can lag the tree by seconds, and a menu named only by the item it had drawn, "menu ('Sort
+    by name')", read to the answer model as the wrong menu, where the tree held all six items.
+    """
     popups: dict[tuple, str] = {}
-    for popup, labels in members.items():
+    for popup, labels in screen.popups.items():
         # A popup is known by its role and name. A menu has no name, so its first items name it.
         key = (popup.role, popup.name) if popup.name else (popup.role, *labels[:3])
         popups.setdefault(key, describe(popup, labels))

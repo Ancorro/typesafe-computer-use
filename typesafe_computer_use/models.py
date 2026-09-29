@@ -247,7 +247,7 @@ class Screen:
     ax_refs: dict[int, object] = field(default_factory=dict)  # item index -> accessibility element, when it has one
     offscreen: list[AxNode] = field(default_factory=list)  # labelled controls the app exposes but does not show
     covered: dict[int, Popup] = field(default_factory=dict)  # item index -> the popup a click on it would land on
-    within: dict[int, Popup] = field(default_factory=dict)  # item index -> the popup it is part of
+    popups: dict[Popup, list[str]] = field(default_factory=dict)  # each popup the tree shows -> its controls' labels
 
     @property
     def size_pt(self) -> tuple[float, float]:

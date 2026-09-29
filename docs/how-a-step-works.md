@@ -77,7 +77,10 @@ the one the action was taken on, and the coarsest change ends the line, in what 
 
 The walk marks each control inside a node with a popup role that is on screen: AT-SPI's alert,
 dialog, and menu in an OSWorld VM, a sheet or popover on a Mac. Chrome keeps a closed dropdown's
-menu in the tree with no frame, so that is no popup. Chrome's settings list down the side of its
+menu in the tree with no frame, so that is no popup. A popup is named by all its controls in the
+tree, drawn or not: a capture can lag the tree, and on chrome/2ad9387a a menu named by the one item
+the capture had drawn, `menu ('Sort by name')`, led the answer model to send the classifier to
+Chrome's own menu in 15 of 17 reviews, against 7 of 17 with all six items named. Chrome's settings list down the side of its
 pages is a menu too, which a modal dialog hides from the tree; a menu that shows as a dialog closes
 did not open. When one of the two screens had a tree and the other none, the line ends as it was:
 Chrome builds its tree only once asked, so a task's first capture may have none, and what the tree
