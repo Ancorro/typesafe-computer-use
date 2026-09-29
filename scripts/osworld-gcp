@@ -547,7 +547,7 @@ case "${1:-}" in
     shift # the host, which is always the cached instance
     unset OSWORLD_GCP_RSH
     load
-    exec "${SSH[@]}" --quiet --command "$*"
+    exec "${SSH[@]}" "${KEEPALIVE[@]}" --quiet --command "$*" # a dropped tunnel ends the pull, so its retry runs
     ;;
   *)
     usage
