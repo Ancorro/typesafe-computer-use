@@ -18,7 +18,7 @@ longer into separate bullets. Keep the whole page short.
 - With no wait, OSWorld's screenshot often shows the screen from before Chrome drew the menu or page a click opened.
 - With no wait, jev's tree, read just after the screenshot, can disagree with it, such as a menu half in the tree and not on the screenshot.
 - A refused action sends OSWorld nothing, so jev gets no new observation and reads the same stale screen until it stops.
-- With three VMs at once, no wait cut a jev step by only about 1.6 s, since OSWorld's step still takes about 1.3 s and OCR 2–3 s.
+- With three VMs at once, no wait cut OSWorld's part of a jev step from 3.0 s to about 1.3 s, and OCR still takes 2–3 s.
 - OSWorld's tree fetch walks the whole desktop (about 2,500 nodes, 2.4 s), but jev needs only the front app's.
 - OSWorld's tree request has no timeout, and one hung a run for 9.5 hours.
 - OSWorld records video in H.264 4:4:4, which QuickTime cannot play.
