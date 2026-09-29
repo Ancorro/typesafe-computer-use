@@ -203,6 +203,62 @@ def test_a_spreadsheet_and_a_tree_past_the_cap_are_left_to_osworlds_fetch():
         light_walk.Walk(desktop, small).tree(desktop.apps())
 
 
+class Cold(FakeDesktop):
+    """A fresh Chrome: its active window holds nothing for the first `cold` walks, until the question
+    made it build its tree."""
+
+    def __init__(self, root, cold: int) -> None:
+        super().__init__(root)
+        chrome = next(app for app in root if a11y.name(app) in a11y.BROWSER_APPS)
+        self.frame = next(w for w in chrome if a11y.has_state(w, "active"))
+        self.cold = cold
+
+    def children(self, node):
+        if node is self.frame and self.cold > 0:
+            self.cold -= 1
+            return iter(())
+        return super().children(node)
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.slept: list[float] = []
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+def test_a_fresh_chrome_is_walked_again_until_it_has_built_its_tree():
+    """All six tasks of the first check run: with no fetch at reset, jev's first walk was Chrome's first
+    question, and its window came back empty, so the first steps had no controls to pick from."""
+    full = load(CAPTURED)
+    clock = Clock()
+    root = light_walk.warm_tree(Cold(full, cold=2), tree.settings(), clock=lambda: clock.now, sleep=clock.sleep)
+    assert tree.view(a11y.parse(light_walk.render(root))) == tree.view(full)
+    assert clock.slept == [light_walk.WARM_POLL] * 2
+
+
+def test_a_chrome_that_never_builds_its_tree_is_left_as_it_is_after_the_wait():
+    clock = Clock()
+    root = light_walk.warm_tree(Cold(load(CAPTURED), cold=1000), tree.settings(), clock=lambda: clock.now, sleep=clock.sleep)
+    assert clock.now == tree.WARM_SECONDS
+    (frame,) = [w for app in root for w in app if a11y.has_state(w, "active")]
+    assert len(frame) == 0
+
+
+def test_only_a_browser_in_front_is_waited_for():
+    full = load(CAPTURED)
+    desktop = Cold(full, cold=1000)
+    for app in full:
+        if a11y.name(app) == "Google Chrome":
+            app.set("name", "Files")
+    clock = Clock()
+    light_walk.warm_tree(desktop, tree.settings(), clock=lambda: clock.now, sleep=clock.sleep)
+    assert clock.slept == []
+
+
 def test_the_tree_is_printed_in_ascii_as_xml_can_hold_it():
     element = light_walk.ET.Element("desktop-frame")
     element.append(light_walk.ET.Element("label", {"name": light_walk.clean("Café \x0b menu")}))

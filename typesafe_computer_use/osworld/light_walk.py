@@ -17,6 +17,11 @@ It walks every node of that application, not only the showing ones: in Chrome a 
 sit under one that is not, as the options of an open `<select>` do under their hidden popup, and a
 focused field under a section of no size.
 
+Chrome builds its tree only once something asks for it, so the first walk of a fresh Chrome finds
+its active window empty, where OSWorld's fetch at reset used to have asked first. A browser in front
+with an empty active window is walked again, a quarter second apart, until the window fills or
+`warm_seconds` pass.
+
 When no window is active, the application in front is the first to hold a focused element other
 than a top-level window, and then the first with a focused top-level window, as in `a11y.active_app`.
 Finding it takes walking the applications one by one, GNOME Shell last. When the application in
@@ -39,6 +44,7 @@ from __future__ import annotations
 
 import re
 import sys
+import time
 import xml.etree.ElementTree as ET
 from collections import deque
 from itertools import islice
@@ -55,6 +61,7 @@ MAX_WIDTH = 1024  # OSWorld's: the children past this many are left out
 STATE_PREFIX = "ATSPI_STATE_"  # Atspi's name for a state, before the one OSWorld writes
 DROPPED = ("\ufffc", "\ufffd")  # characters OSWorld drops from text: an embedded object, and a bad byte
 SPREADSHEET = "document spreadsheet"  # the role whose cells OSWorld's walk picks out by hand
+WARM_POLL = 0.25  # seconds between two walks of a browser whose tree is not built yet
 NOT_XML = re.compile("[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")  # no XML 1.0 document holds these
 
 
@@ -82,6 +89,7 @@ class Walk:
         self.last = set(settings["last_apps"])
         self.cap = int(settings["node_cap"])
         self.nodes = 0
+        self.front: ET.Element | None = None  # the application in front, once `tree` found it
 
     # ----- one node --------------------------------------------------------------------------
 
@@ -154,11 +162,19 @@ class Walk:
         if front is None:
             front = self.holding_focus(apps, tops, walked)
         if front is not None:
-            root.append(walked.get(id(front)) if id(front) in walked else self.node(front, 1))
+            self.front = walked.get(id(front)) if id(front) in walked else self.node(front, 1)
+            root.append(self.front)
         for app in apps:
             if app is not front and self.api.name(app) in self.browsers:
                 root.append(walked.get(id(app)) if id(app) in walked else self.address_bar_of(app, tops[id(app)]))
         return root
+
+    def cold(self) -> bool:
+        """Whether the application in front is a browser whose active window holds nothing yet."""
+        front = self.front
+        if front is None or front.get("name") not in self.browsers:
+            return False
+        return any(w.tag in self.windows and w.get(ST + "active") == "true" and len(w) == 0 for w in front)
 
     def top_level(self, app) -> list:
         """The application's top-level windows: each one's node, tag, and states. An application
@@ -267,7 +283,18 @@ def render(root: ET.Element) -> str:
     return ET.tostring(root, encoding="unicode").encode("ascii", "xmlcharrefreplace").decode("ascii")
 
 
+def warm_tree(api, settings: dict, clock=time.monotonic, sleep=time.sleep) -> ET.Element:
+    """The desktop's tree, walked again while the browser in front has not built its own yet, for
+    `warm_seconds` at most."""
+    deadline = clock() + float(settings["warm_seconds"])
+    while True:
+        walk = Walk(api, settings)
+        root = walk.tree(api.apps())
+        if not walk.cold() or clock() >= deadline:
+            return root
+        sleep(WARM_POLL)
+
+
 def main(settings: dict) -> None:
     """Print the VM's tree."""
-    api = AtspiApi()
-    sys.stdout.write(render(Walk(api, settings).tree(api.apps())))
+    sys.stdout.write(render(warm_tree(AtspiApi(), settings)))

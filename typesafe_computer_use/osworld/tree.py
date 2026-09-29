@@ -49,6 +49,7 @@ OSWORLD = "osworld"  # the trees came with OSWorld's observations
 # long as it takes.
 LIGHT_SECONDS = 10.0
 FULL_SECONDS = 20.0  # how long OSWorld's own fetch may take, which asks with no timeout, before the step goes without
+WARM_SECONDS = 5.0  # how long the walk waits for a fresh Chrome to build its tree; the light walk's deadline holds it
 NODE_CAP = 20_000  # past this many nodes the walk stops, and OSWorld's fetch stands in: a tree that big is a runaway
 CHECK = "JEV_OSWORLD_TREE_CHECK"  # "1" checks each light tree against OSWorld's on the same screen
 CHECK_DISPLAY = (1920.0, 1080.0)  # the display a check walks for controls; both trees are walked on the same one
@@ -96,6 +97,7 @@ def settings() -> dict:
         "address_bar": a11y.ADDRESS_BAR,
         "last_apps": [SHELL],
         "node_cap": NODE_CAP,
+        "warm_seconds": WARM_SECONDS,
     }
 
 
