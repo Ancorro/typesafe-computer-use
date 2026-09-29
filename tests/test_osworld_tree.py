@@ -174,7 +174,9 @@ def test_each_node_is_asked_only_what_a11y_reads():
     chrome = [e for e in a11y.active_app(full).iter()]
     showing = {e for e in chrome if a11y.has_state(e, "visible") and a11y.has_state(e, "showing")}
     assert desktop.asked_of("extents") == showing, "extents only where OSWorld writes them"
-    assert desktop.asked_of("attributes") == {e for e in chrome if a11y.has_state(e, "focused")}
+    browser = a11y.active_app(full)
+    woken = {browser, *(w for w in browser if w.tag in a11y.WINDOW_ROLES)}  # asked, so Chrome builds its tree
+    assert desktop.asked_of("attributes") == {e for e in chrome if a11y.has_state(e, "focused")} | woken
     asked_text = desktop.asked_of("text")
     assert not any(e.tag == "password-text" for e in asked_text), "a password's text never leaves the VM"
     assert all(not a11y.name(e) or a11y.has_state(e, "focused") or e.tag == "entry" for e in asked_text)
@@ -204,18 +206,26 @@ def test_a_spreadsheet_and_a_tree_past_the_cap_are_left_to_osworlds_fetch():
 
 
 class Cold(FakeDesktop):
-    """A fresh Chrome: its active window holds nothing for the first `cold` walks, until the question
-    made it build its tree."""
+    """A fresh Chrome, as OSWorld's VM starts it: its active window holds nothing until something asks
+    it or its application for their attributes, as an assistive technology does, and then for the
+    next `building` looks, while it builds its tree. `waking` lists the questions that wake it."""
 
-    def __init__(self, root, cold: int) -> None:
+    def __init__(self, root, building: int = 0, waking: tuple = ("attributes",)) -> None:
         super().__init__(root)
-        chrome = next(app for app in root if a11y.name(app) in a11y.BROWSER_APPS)
-        self.frame = next(w for w in chrome if a11y.has_state(w, "active"))
-        self.cold = cold
+        self.chrome = next(app for app in root if a11y.name(app) in a11y.BROWSER_APPS)
+        self.frame = next(w for w in self.chrome if a11y.has_state(w, "active"))
+        self.building = building
+        self.waking = waking
+        self.awake = False
+
+    def attributes(self, node) -> dict:
+        if node in (self.chrome, self.frame) and "attributes" in self.waking:
+            self.awake = True
+        return super().attributes(node)
 
     def children(self, node):
-        if node is self.frame and self.cold > 0:
-            self.cold -= 1
+        if node is self.frame and (not self.awake or self.building > 0):
+            self.building -= self.awake
             return iter(())
         return super().children(node)
 
@@ -230,19 +240,21 @@ class Clock:
         self.now += seconds
 
 
-def test_a_fresh_chrome_is_walked_again_until_it_has_built_its_tree():
-    """All six tasks of the first check run: with no fetch at reset, jev's first walk was Chrome's first
-    question, and its window came back empty, so the first steps had no controls to pick from."""
+def test_a_fresh_chrome_is_asked_for_its_attributes_and_walked_again_until_it_has_built_its_tree():
+    """Every task of the first two runs on the VM: with OSWorld's fetch gone, nothing asked Chrome for
+    attributes, so its window stayed empty step after step, and jev chose from OCR alone. A fresh
+    Chromium in the sandbox builds its tree on that question alone, of all OSWorld's fetch asks."""
     full = load(CAPTURED)
     clock = Clock()
-    root = light_walk.warm_tree(Cold(full, cold=2), tree.settings(), clock=lambda: clock.now, sleep=clock.sleep)
+    root = light_walk.warm_tree(Cold(full, building=2), tree.settings(), clock=lambda: clock.now, sleep=clock.sleep)
     assert tree.view(a11y.parse(light_walk.render(root))) == tree.view(full)
     assert clock.slept == [light_walk.WARM_POLL] * 2
 
 
 def test_a_chrome_that_never_builds_its_tree_is_left_as_it_is_after_the_wait():
     clock = Clock()
-    root = light_walk.warm_tree(Cold(load(CAPTURED), cold=1000), tree.settings(), clock=lambda: clock.now, sleep=clock.sleep)
+    desktop = Cold(load(CAPTURED), waking=())
+    root = light_walk.warm_tree(desktop, tree.settings(), clock=lambda: clock.now, sleep=clock.sleep)
     assert clock.now == tree.WARM_SECONDS
     (frame,) = [w for app in root for w in app if a11y.has_state(w, "active")]
     assert len(frame) == 0
@@ -250,7 +262,7 @@ def test_a_chrome_that_never_builds_its_tree_is_left_as_it_is_after_the_wait():
 
 def test_only_a_browser_in_front_is_waited_for():
     full = load(CAPTURED)
-    desktop = Cold(full, cold=1000)
+    desktop = Cold(full, waking=())
     for app in full:
         if a11y.name(app) == "Google Chrome":
             app.set("name", "Files")

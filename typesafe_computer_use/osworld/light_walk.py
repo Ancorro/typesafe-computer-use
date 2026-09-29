@@ -17,10 +17,12 @@ It walks every node of that application, not only the showing ones: in Chrome a 
 sit under one that is not, as the options of an open `<select>` do under their hidden popup, and a
 focused field under a section of no size.
 
-Chrome builds its tree only once something asks for it, so the first walk of a fresh Chrome finds
-its active window empty, where OSWorld's fetch at reset used to have asked first. A browser in front
-with an empty active window is walked again, a quarter second apart, until the window fills or
-`warm_seconds` pass.
+Chrome builds its tree only once an assistive technology shows itself, and what shows one is a
+question for the attributes of the application or its window, which OSWorld's fetch asks of every
+node and this walk otherwise never would: without it, Chrome's window stays empty, step after step.
+So each walk first asks each browser for its attributes, and a browser in front whose active window
+is still empty is walked again, a quarter second apart, until the window fills or `warm_seconds`
+pass.
 
 When no window is active, the application in front is the first to hold a focused element other
 than a top-level window, and then the first with a focused top-level window, as in `a11y.active_app`.
@@ -47,6 +49,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from collections import deque
+from contextlib import suppress
 from itertools import islice
 
 NAMESPACES = {  # the prefixes and namespaces of OSWorld's Ubuntu tree
@@ -157,6 +160,9 @@ class Walk:
         that application is not the browser."""
         root = ET.Element("desktop-frame")
         tops = {id(app): self.top_level(app) for app in apps}
+        for app in apps:
+            if self.api.name(app) in self.browsers:
+                self.wake(app, [window for window, _, _ in tops[id(app)]])
         walked: dict[int, ET.Element] = {}
         front = next((app for app in apps if any("active" in states for _, _, states in tops[id(app)])), None)
         if front is None:
@@ -168,6 +174,13 @@ class Walk:
             if app is not front and self.api.name(app) in self.browsers:
                 root.append(walked.get(id(app)) if id(app) in walked else self.address_bar_of(app, tops[id(app)]))
         return root
+
+    def wake(self, app, windows: list) -> None:
+        """Ask a browser and its windows for their attributes: to Chrome, that is an assistive
+        technology asking, and it builds its tree for one."""
+        for node in [app, *windows]:
+            with suppress(Exception):
+                self.api.attributes(node)
 
     def cold(self) -> bool:
         """Whether the application in front is a browser whose active window holds nothing yet."""
@@ -214,16 +227,16 @@ class Walk:
             while queue:
                 node, depth = queue.popleft()
                 self.count()
-                if depth > 2 and self.tag(node) == "entry" and (self.api.name(node) or "") == self.address_bar:
-                    top.append(self.node(node, depth, children=False))
-                    break
-                if depth < MAX_DEPTH:
-                    try:
+                try:  # a node that fails is passed over, and so is what lies under it
+                    if depth > 2 and self.tag(node) == "entry" and (self.api.name(node) or "") == self.address_bar:
+                        top.append(self.node(node, depth, children=False))
+                        break
+                    if depth < MAX_DEPTH:
                         queue.extend((child, depth + 1) for child in islice(self.api.children(node), MAX_WIDTH))
-                    except Declined:
-                        raise
-                    except Exception:
-                        pass
+                except Declined:
+                    raise
+                except Exception:
+                    pass
         return element
 
 
