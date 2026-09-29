@@ -128,7 +128,7 @@ on the app, and the node and time caps bind first on a big tree: Notes and Chrom
 | key | does |
 |---|---|
 | `click_item` | press the element through the accessibility tree when the item came from it, so the press lands on the control rather than on whatever covers it; a mouse click at the center of the box otherwise, and as the fallback when the press is refused, after closing the popup in front of it when there is one |
-| `press_offscreen` | `AXPress` a labelled control the app exposes but does not show, chosen from the off-screen list; offered only when that list is not empty, and a refusal counts as a no-op since there is no pixel to fall back on |
+| `press_offscreen` | `AXPress` a labelled control the app exposes but does not show, chosen from the off-screen list; offered only when that list is not empty, and a refusal counts as a no-op since there is no pixel to fall back on, except for an item of a menu the tree has open on the display, which is clicked where the tree puts it: the capture has not drawn the menu yet |
 | `use_browser` | go to the browser, showing the website the `site` answer names: `none` brings it forward on the page already open there, a `SITES` catalog key opens that URL through AppleScript `open location`, and `other` opens a URL the writer proposes |
 | `type_text` | the writer composes the string; it is set on the focused element through the accessibility tree, with keystrokes as the fallback when the value does not read back, and a TypeSafe Noul then checks the field's value; text the writer submits gets Return at once instead, and the next screen is the check |
 | `type_email` | fills in `$CLICKER_EMAIL` the same way; refused unless a text field is focused |
@@ -213,7 +213,13 @@ six or fewer (a page hides a few), and the other four lacked 17 to 52: a menu or
 not drawn yet, though the tree, read after the capture, already had it. The second look comes a
 wait's pause later, and the step decides on it, however it looks: one more look, never a wait
 until the screen settles. After a wait there is none, since the classifier has just looked again
-itself. The step's log says why it looked twice.
+itself, and none when nothing acted since the last capture, as when the writer sends the
+classifier back to the screen it stopped on. The step's log says why it looked twice.
+
+A second look does not always help: on chrome/2ad9387a and chrome/bb5e4c0d at no wait, Chrome left
+a menu it had opened unpainted on every capture for seconds, while the tree had it open. So an
+item of such a menu, which reaches the classifier as an off-screen control, is clicked where the
+tree puts it when the press is refused (OSWorld refuses every press).
 
 ## The answer
 

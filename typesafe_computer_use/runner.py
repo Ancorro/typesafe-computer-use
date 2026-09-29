@@ -362,9 +362,12 @@ def look_again(cfg: RunConfig, state: RunState, screen: Screen, items: list[Item
     new one comes at all. So a screen the last action seems to have left as it was gets one more
     look, a wait's worth later, before it counts as idle; so does a capture that lacks many of the
     controls the tree, read after it, puts on screen. Once, never until the screen settles: the step
-    acts on what the second look shows. After a wait the classifier has just looked again itself.
+    acts on what the second look shows. After a wait the classifier has just looked again itself, and
+    with no action since the last capture (the writer sent the classifier back to it) there is
+    nothing new to wait for.
     """
-    if not cfg.act or cfg.replay or state.waits:
+    acted = state.view is None  # an action made the last capture stale
+    if not cfg.act or cfg.replay or state.waits or not acted:
         return None
     if len(screen.undrawn) >= UNDRAWN:
         return f"{len(screen.undrawn)} controls in the tree are not on the capture yet"

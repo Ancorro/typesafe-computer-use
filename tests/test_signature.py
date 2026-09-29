@@ -159,3 +159,12 @@ def test_a_capture_missing_many_of_the_trees_controls_is_looked_at_again(screen,
     assert look_again(acting, RunState(), screen, []) == f"{UNDRAWN} controls in the tree are not on the capture yet"
     assert look_again(acting, RunState(waits=1), screen, []) is None, "a wait was the second look"
     assert look_again(RunConfig(goal="g", out=tmp_path), RunState(), screen, []) is None, "a dry run looks once"
+
+
+def test_a_step_with_no_action_since_the_last_capture_looks_once(screen, tmp_path):
+    """The writer sent the classifier back to the screen it stopped on: nothing acted, so nothing is
+    on its way to the screen."""
+    acting = RunConfig(goal="g", out=tmp_path, act=True)
+    home = signature(screen, [])
+    assert look_again(acting, RunState(last=home), screen, []) == "the screen is as the last action found it"
+    assert look_again(acting, RunState(last=home, view=(screen, [])), screen, []) is None
