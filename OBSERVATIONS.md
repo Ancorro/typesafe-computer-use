@@ -18,6 +18,9 @@ longer into separate bullets. Keep the whole page short.
 - OSWorld's tree fetch walks the whole desktop (about 2,500 nodes, 2.4 s), but jev needs only the front app's.
 - OSWorld's tree request has no timeout, and one hung a run for 9.5 hours.
 - OSWorld records video in H.264 4:4:4, which QuickTime cannot play.
+- With three VMs at once and a 2 s wait, the capture after the Restore bubble closed and Organise's menu opened still lacked the menu in all 4 batch runs of chrome/2ad9387a, and in none of 3 solo runs.
+- jev offers controls the capture has not drawn yet as off-screen ones, which nothing in an OSWorld VM can press, so the pick is refused.
+- The answer model reads a history line closely: a menu named by the one item a lagging capture drew sent it to the wrong menu.
 
 ## Chrome
 
