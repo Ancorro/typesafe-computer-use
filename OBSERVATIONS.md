@@ -11,12 +11,14 @@ longer into separate bullets. Keep the whole page short.
 - On the bookmark task, jev takes 9 steps and Luna 6, because jev has no right-click or keyboard shortcuts.
 - The classifier's input is now most of jev's cost, and a fuller tree makes it larger.
 - The classifier picks the same item for the same request only about 95% of the time.
+- The classifier picked `wait` on none of 972 captured screens, nor on 21 of them with the page's content removed, so code has to notice a screen still loading.
 
 ## OSWorld
 
 - The fixed 2 s wait after each action charges per step, so it penalizes an agent that takes more, cheaper steps.
 - OSWorld's tree fetch walks the whole desktop (about 2,500 nodes, 2.4 s), but jev needs only the front app's.
 - OSWorld's tree request has no timeout, and one hung a run for 9.5 hours.
+- Even with the 2 s wait, 4 of 384 OSWorld captures lacked a menu or page that jev's tree, read after them, already had.
 - OSWorld records video in H.264 4:4:4, which QuickTime cannot play.
 
 ## Chrome

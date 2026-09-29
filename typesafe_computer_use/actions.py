@@ -15,7 +15,7 @@ from .platform_adapter import desktop
 from .writer import Writer, WriterError, compose_text, compose_url
 
 VERIFY_THRESHOLD = 0.5
-WAIT_SECONDS = 3.0  # what a wait adds to the settle delay every step already gets; three of them cover a slow page
+WAIT_SECONDS = 0.5  # a wait's pause before the next look; a page that takes longer gets several (see runner.MAX_WAITS)
 CLOSE_SECONDS = 0.5  # for a closed popup to leave the screen before the click under it
 
 
@@ -216,7 +216,8 @@ def _scroll(lines: int, description: str):
 
 
 def _wait(decision, screen, items, ctx) -> str:
-    """Give a loading page time. The step's own delay follows, so a wait is worth both."""
+    """Give a loading page a moment, then look again. A short pause looks again sooner: the page
+    may show what the goal needs before it finishes, and the next step acts on it then."""
     desktop.sleep_watching(WAIT_SECONDS)
     return "waited"
 

@@ -6,7 +6,13 @@ in an Ubuntu VM and scored by OSWorld's own checks. jev runs there as an OSWorld
 with GPT-6 Luna to compare against. OSWorld's runner does the reset, the steps, the scoring, and
 the recording. Both agents get the same task, 50 steps, and no wait after each action:
 `SLEEP_AFTER_EXECUTION` in `scripts/osworld` is 0, where runs up to 2026-09-29 had 2 seconds, and
-each benchmark row records it ([Results](#results)).
+each benchmark row records it ([Results](#results)). Each agent waits only when it chooses to,
+with a sleep in the VM: Luna for as long as it asks, a second by default, and jev for 0.5 s,
+when what the goal needs is not on the screen yet, before it looks again. Neither uses OSWorld's
+`WAIT` action, which sleeps the fixed pause. With no pause, OSWorld's screenshot can come before
+Chrome has drawn what an action did, so jev looks once more, the same 0.5 s later, when the screen
+seems unchanged, or when the capture lacks many of the controls its tree has
+([Stalls](how-a-step-works.md#stalls)). Each such look is an OSWorld step of its own.
 
 OSWorld's VM runs under QEMU and needs a Linux host with KVM, so it does not run on a Mac.
 [Run in Google Cloud](#run-in-google-cloud) sets one up.
