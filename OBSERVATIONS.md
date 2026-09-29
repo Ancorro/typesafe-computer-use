@@ -6,7 +6,7 @@ longer into separate bullets. Keep the whole page short.
 ## jev against LLM agents
 
 - An LLM agent sees earlier screenshots, so it can notice a layout shift or a click that did nothing.
-- jev sees only its last 8 actions as text, so it cannot tell whether an action worked.
+- jev sees no earlier screen, only its last 8 actions as text, each ending with the coarsest change it made, such as "closed: alert 'Restore pages?'".
 - jev clicks about 0.2 s after it looks, against 1–2 s for an LLM, so a layout shift may catch it less often.
 - On the bookmark task, jev takes 9 steps and Luna 6, because jev has no right-click or keyboard shortcuts.
 - The classifier's input is now most of jev's cost, and a fuller tree makes it larger.

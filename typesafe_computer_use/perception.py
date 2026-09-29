@@ -63,11 +63,12 @@ def capture(
             frontmost = app or frontmost
     with phase(timing, "window"):
         window = None if replay else desktop.frontmost_window_bounds(pid)
+        title = None if replay else desktop.frontmost_window_title(pid)
     with phase(timing, "field"):
         field = None if replay else desktop.focused_field()
     with phase(timing, "url"):
         page_url = url if url is not None else (None if replay else desktop.browser_url(browser))
-    return Screen(image=image, scale=scale, app=frontmost, field=field, url=page_url, pid=pid, window=window)
+    return Screen(image=image, scale=scale, app=frontmost, field=field, url=page_url, pid=pid, window=window, title=title)
 
 
 def goal_echoes(goal: str) -> set[str]:
@@ -93,7 +94,8 @@ def perceive(
     Fills `screen.ax_refs` on the way, so an item that came from the accessibility tree can be
     pressed through it later. The merge renumbers everything, hence the side table over the
     final indices rather than a handle on the item itself, which has to stay printable.
-    `screen.covered` is a side table the same way: the items under a popup, and which popup.
+    `screen.covered` is a side table the same way: the items under a popup, and which popup. So is
+    `screen.within`: the items that are part of a popup, and which.
 
     Fills `screen.offscreen` too: labelled controls the app exposes but does not show. They are
     offered on their own, never as items, because nothing on the capture points at them.
@@ -117,6 +119,8 @@ def perceive(
     screen.covered.update(
         {it.index: nodes[origin].covered_by for it, origin in merged if origin is not None and nodes[origin].covered_by}
     )
+    screen.within.clear()
+    screen.within.update({it.index: nodes[origin].within for it, origin in merged if origin is not None and nodes[origin].within})
     items = [it for it, _ in merged]
     screen.offscreen.clear()
     screen.offscreen.extend(offscreen_controls(hidden, items))
