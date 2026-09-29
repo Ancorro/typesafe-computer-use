@@ -3,7 +3,8 @@
 OSWorld files each task under `<results>/<action_space>/<observation_type>/<model>/<domain>/<task_id>/`:
 `result.txt` holds the score and `traj.jsonl` one line per action, with its time. jev adds its own
 run folder there, `jev/`, whose `run.json` holds jev's outcome, its tokens per model, and what the
-run ran on: the OCR backend, OSWorld's provider, and the machine's architecture. The Luna runner
+run ran on: the OCR backend, OSWorld's provider, the machine's architecture, and where the
+accessibility tree came from, with how many of jev's own fetches fell back to OSWorld's. The Luna runner
 writes `usage.json` there instead, with its tokens in the same shape, the seconds its model took,
 and the settings it ran with, such as the reasoning effort (see `usage.py`).
 
@@ -55,6 +56,8 @@ class Jev:
     provider: str | None
     architecture: str | None
     usage: dict[str, Usage] = field(default_factory=dict)
+    tree: str | None = None  # "jev-light" when jev fetched its own trees, "osworld" when they came with the observations
+    tree_fallbacks: int | None = None  # jev's own fetches that OSWorld's fetch stood in for
 
 
 @dataclass(frozen=True)
@@ -157,6 +160,7 @@ def _jev(path: Path) -> Jev | None:
         return Jev(outcome="run.json is not valid JSON", seconds=None, ocr=None, provider=None, architecture=None)
     osworld = summary.get("osworld") or {}
     usage = _usage(summary)
+    fallbacks = osworld.get("tree_fallbacks")
     return Jev(
         outcome=summary.get("outcome"),
         seconds=summary.get("seconds"),
@@ -164,6 +168,8 @@ def _jev(path: Path) -> Jev | None:
         provider=osworld.get("provider"),
         architecture=osworld.get("architecture"),
         usage=usage,
+        tree=osworld.get("tree"),
+        tree_fallbacks=fallbacks if isinstance(fallbacks, int) else None,
     )
 
 
@@ -214,7 +220,12 @@ def describe(result: TaskResult) -> list[str]:
         ended = jev.outcome or "no outcome"
         if jev.seconds is not None:
             ended += f" after {duration(jev.seconds)}"
-        row("jev", f"{ended}; ocr {jev.ocr}, provider {jev.provider}, architecture {jev.architecture}")
+        tree = ""
+        if jev.tree is not None:
+            tree = f", tree {jev.tree}"
+            if jev.tree_fallbacks:
+                tree += f" ({jev.tree_fallbacks} fell back to OSWorld's fetch)"
+        row("jev", f"{ended}; ocr {jev.ocr}, provider {jev.provider}, architecture {jev.architecture}{tree}")
     agent = [f"{name} {value}" for name, value in sorted(result.settings.items())]
     if result.model_seconds is not None:
         agent.insert(0, f"{duration(result.model_seconds)} of model time")

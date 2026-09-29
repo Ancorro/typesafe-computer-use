@@ -46,6 +46,23 @@ def test_a_jev_row_has_no_model_time_or_agent_settings(tmp_path):
     assert (row["agent_seconds"], row["model_seconds"], row["agent_settings"]) == (84.2, None, {})
 
 
+def test_a_jev_row_says_where_its_trees_came_from(tmp_path):
+    folder = task_folder(tmp_path, "jev", "screenshot_a11y_tree")
+    jev_run(folder)
+    summary = json.loads((folder / "jev" / "run.json").read_text(encoding="utf-8"))
+    summary["osworld"].update(tree="jev-light", tree_fallbacks=0)
+    (folder / "jev" / "run.json").write_text(json.dumps(summary), encoding="utf-8")
+    (row,) = record.rows(tmp_path, "jev", ["chrome/030eeff7-b492-4218-b312-701ec99ee0cc"], SETTINGS)
+    assert (row["tree"], row["tree_fallbacks"]) == ("jev-light", 0)
+
+
+def test_a_luna_row_names_no_tree(tmp_path):
+    folder = task_folder(tmp_path, "gpt-6-luna", "screenshot")
+    (folder / "result.txt").write_text("1.0\n", encoding="utf-8")
+    (row,) = record.rows(tmp_path, "gpt-6-luna", ["chrome/030eeff7-b492-4218-b312-701ec99ee0cc"], SETTINGS)
+    assert (row["tree"], row["tree_fallbacks"]) == (None, None)
+
+
 def test_a_task_that_left_no_folder_still_gets_a_scoreless_row(tmp_path):
     (row,) = record.rows(tmp_path, "jev", ["chrome/missing"], SETTINGS)
     assert row["score"] is None and row["error"] == "no result folder came back"

@@ -72,10 +72,20 @@ def test_the_runner_builds_jev_agent_with_the_required_ocr():
         "ocr": "args.ocr",
         "max_steps": "args.max_steps",
         "provider": "args.provider_name",
+        "controller": "lambda: env.controller",  # read at each task: OSWorld makes a new one when it reverts the VM
     }
     (ocr,) = [call for call in calls(module, "add_argument") if ast.literal_eval(call.args[0]) == "--ocr"]
     assert {kw.arg: ast.unparse(kw.value) for kw in ocr.keywords}["required"] == "True"
     assert "PromptAgent" not in RUNNER.read_text(encoding="utf-8")
+
+
+def test_the_jev_runner_asks_osworld_for_no_tree_and_still_files_results_under_the_observation_type():
+    """jev fetches the tree itself (typesafe_computer_use/osworld/tree.py); OSWorld's own fetch of the
+    whole desktop would cost every step 2.4 s for nothing. The results folder keeps its name."""
+    (env,) = calls(tree(RUNNER), "DesktopEnv")
+    assert {k.arg: ast.unparse(k.value) for k in env.keywords}["require_a11y_tree"] == "False"
+    source = RUNNER.read_text(encoding="utf-8")
+    assert source.count("args.observation_type,") >= 3, "the results folder, args.json, and the resume check"
 
 
 def test_the_runner_points_the_agent_at_each_task_folder_before_running_it():

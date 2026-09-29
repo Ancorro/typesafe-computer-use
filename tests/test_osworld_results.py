@@ -74,6 +74,28 @@ def test_a_jev_task_reads_score_steps_time_and_tokens(tmp_path):
     assert "typesafe-classifier: 7 requests, 21,000 in, 0 cached in, 70 out" in text
 
 
+def test_a_jev_run_says_where_its_trees_came_from_and_how_many_fell_back(tmp_path):
+    folder = task_folder(tmp_path, "jev", "screenshot_a11y_tree")
+    jev_run(folder)
+    summary = json.loads((folder / "jev" / "run.json").read_text(encoding="utf-8"))
+    summary["osworld"].update(tree="jev-light", tree_fetches=12, tree_fallbacks=2)
+    (folder / "jev" / "run.json").write_text(json.dumps(summary), encoding="utf-8")
+
+    (result,) = results.read(tmp_path)
+
+    assert (result.jev.tree, result.jev.tree_fallbacks) == ("jev-light", 2)
+    text = "\n".join(results.describe(result))
+    assert "architecture x86_64, tree jev-light (2 fell back to OSWorld's fetch)" in text
+
+
+def test_an_earlier_jev_run_names_no_tree(tmp_path):
+    folder = task_folder(tmp_path, "jev", "screenshot_a11y_tree")
+    jev_run(folder)
+    (result,) = results.read(tmp_path)
+    assert (result.jev.tree, result.jev.tree_fallbacks) == (None, None)
+    assert "architecture x86_64\n" in "\n".join(results.describe(result)) + "\n"
+
+
 def test_another_agents_usage_json_gives_its_tokens(tmp_path):
     folder = task_folder(tmp_path, "gpt-6-luna", "screenshot")
     (folder / "result.txt").write_text("0.0\n", encoding="utf-8")

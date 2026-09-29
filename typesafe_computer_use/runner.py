@@ -55,6 +55,10 @@ class RunConfig:
     image: Path | None = None  # replay a saved capture (never acts)
     app: str | None = None  # frontmost app to report during replay
     url: str | None = None  # browser URL to report during replay
+    # Start each capture's OCR on a thread of its own while the capture asks for the app, window,
+    # field, and URL (see `OcrCache.read_ahead`). Worth it where those questions are slow, as over an
+    # OSWorld VM; off for this machine, whose own are quick.
+    read_ahead: bool = False
 
     @property
     def replay(self) -> bool:
@@ -281,9 +285,10 @@ def run_step(cfg: RunConfig, ctx: Context, state: RunState, step: int, log: Log)
     desktop.check_abort()
     timing: dict[str, float] = {}
     started = time.perf_counter()
+    cache = None if cfg.replay else state.ocr_cache
     with phase(timing, "capture"):
-        screen = capture(cfg.image, cfg.app, cfg.url, ctx.browser, timing)
-    items = perceive(screen, MAX_OPTIONS, cfg.goal, timing, None if cfg.replay else state.ocr_cache)
+        screen = capture(cfg.image, cfg.app, cfg.url, ctx.browser, timing, ahead=cache if cfg.read_ahead else None)
+    items = perceive(screen, MAX_OPTIONS, cfg.goal, timing, cache)
     state.view = (screen, items)
     if not screen_moved(state, screen, items, log):
         return False

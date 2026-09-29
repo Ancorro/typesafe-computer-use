@@ -5,9 +5,9 @@ strings, or `WAIT` / `DONE` / `FAIL`. jev's loop reads the screen and acts whene
 adapter joins the two at the step boundary:
 
 - Every input (click, key, typing, scroll) adds its pyautogui code to the step's code, as lines of
-  its own. OSWorld runs each action in the list as a step of its own, with a 2 s pause, a
-  screenshot, and the whole tree after it, and hands the agent only the last observation; so the
-  inputs between two reads (empty a field, type, press Return) go out as one action.
+  its own. OSWorld runs each action in the list as a step of its own, with a 2 s pause and an
+  observation after it, and hands the agent only the last observation; so the inputs between two
+  reads (empty a field, type, press Return) go out as one action.
 - The first read of the screen after an input ends the step: the actions go to `next_obs`, which
   hands them to OSWorld and returns the observation taken after they ran. Reads before any input
   use the observation in hand.
@@ -17,8 +17,14 @@ adapter joins the two at the step boundary:
 
 The screenshot is the capture at scale 1.0, so a click lands on the capture's own pixels. The app,
 window, focused field, URL, and controls come from the accessibility tree, and are simply unknown
-when OSWorld sent none; OCR still reads the screenshot. Nothing in the VM can be pressed through
-the tree, so the `ax_*` actions refuse and every click is a pointer click.
+when there is none; OCR still reads the screenshot. Nothing in the VM can be pressed through the
+tree, so the `ax_*` actions refuse and every click is a pointer click.
+
+The tree comes with the observation, or, given `fetch_tree`, jev fetches it itself (see `tree.py`):
+each observation starts its own fetch on a thread as it arrives, so the capture's OCR reads the
+screenshot while it runs, and only a read of the tree waits for it. A fetch belongs to the one
+observation that started it, which OSWorld took after the step's actions ran, and the step's
+actions go to OSWorld only once the fetch before them is over, so no fetch runs while the VM acts.
 
 Text reaches the code strings only through `repr()`, so what the writer composes is data in the VM,
 never code. Nothing here touches this machine.
@@ -36,8 +42,10 @@ from PIL import Image
 from ..models import AxNode, Field
 from ..platform_adapter import OcrLine
 from . import a11y
+from .tree import Fetched, Later
 
 NextObs = Callable[[list[str]], dict]  # hands a step's actions to OSWorld, returns the next observation
+FetchTree = Callable[[], Fetched]  # fetches the VM's tree as it is now
 
 APP_PID = 1  # stands in for the active app's process: the tree walk reads the active app, not a pid
 TYPE_INTERVAL = 0.02  # seconds between keystrokes in the VM
@@ -59,15 +67,20 @@ class OSWorldDesktop:
         recognize_text: Callable[[Image.Image], list[OcrLine]],
         next_obs: NextObs,
         *,
+        fetch_tree: FetchTree | None = None,
         save_a11y: Path | None = None,
     ) -> None:
-        """`save_a11y` names a folder that gets each observation's raw accessibility tree, as
-        `obs-NNN-a11y.xml` (NNN counts observations from 000, the task's first). OSWorld keeps none,
+        """`fetch_tree` fetches the VM's tree for each observation; without it, the tree is the
+        observation's own. `save_a11y` names a folder that gets each observation's raw accessibility
+        tree, as `obs-NNN-a11y.xml` (NNN counts observations from 000, the task's first), and OSWorld's
+        full tree beside it as `obs-NNN-a11y-full.xml` when a check fetched one. OSWorld keeps none,
         and the raw tree is what a mismatch in `a11y` is diagnosed from. None saves nothing."""
         self._recognize = recognize_text
         self._next_obs = next_obs
+        self._fetch_tree = fetch_tree
         self._save_a11y = save_a11y
         self._seen = 0
+        self.fetched: list[Fetched] = []  # every tree `fetch_tree` brought, in the order the fetches ended
         self.actions: list[str] = []
         self._see(obs)
 
@@ -77,22 +90,43 @@ class OSWorldDesktop:
     # ----- the step boundary -----------------------------------------------------------------
 
     def _see(self, obs: dict) -> None:
-        tree = obs.get("accessibility_tree")
-        if self._save_a11y is not None and tree:
-            self._save_a11y.mkdir(parents=True, exist_ok=True)
-            data = tree.encode("utf-8") if isinstance(tree, str) else tree
-            (self._save_a11y / f"obs-{self._seen:03d}-a11y.xml").write_bytes(data)
-        self._seen += 1
+        index, self._seen = self._seen, self._seen + 1
         self._obs = obs
-        self._root = a11y.parse(obs.get("accessibility_tree"))
         self._image: Image.Image | None = None
+        if self._fetch_tree is None:
+            xml = obs.get("accessibility_tree")
+            self._save(index, xml)
+            self._tree = Later(value=a11y.parse(xml))
+        else:
+            self._tree = Later(lambda: self._fetch(index))
+
+    def _fetch(self, index: int) -> ET.Element | None:
+        """On the fetching thread: one observation's tree, recorded and saved."""
+        fetched = self._fetch_tree()
+        self.fetched.append(fetched)
+        self._save(index, fetched.xml)
+        self._save(index, fetched.full, "-full")
+        return fetched.root
+
+    def _save(self, index: int, xml: str | bytes | None, suffix: str = "") -> None:
+        if self._save_a11y is None or not xml:
+            return
+        self._save_a11y.mkdir(parents=True, exist_ok=True)
+        data = xml.encode("utf-8") if isinstance(xml, str) else xml
+        (self._save_a11y / f"obs-{index:03d}-a11y{suffix}.xml").write_bytes(data)
+
+    def _step(self) -> None:
+        """Pending input ends the step: once the last fetch is over, the actions go to OSWorld, and
+        the observation it takes after running them comes back."""
+        if self.actions:
+            actions, self.actions = self.actions, []
+            self._tree.wait()
+            self._see(self._next_obs(actions))
 
     def _now(self) -> ET.Element | None:
         """The tree of the screen as it is now. Pending input ends the step first."""
-        if self.actions:
-            actions, self.actions = self.actions, []
-            self._see(self._next_obs(actions))
-        return self._root
+        self._step()
+        return self._tree.result()
 
     def _do(self, code: str) -> None:
         """Add an input's code to the step's. A new line, not `; `, joins them: the browser's code
@@ -146,7 +180,7 @@ class OSWorldDesktop:
     def scroll(self, lines: int) -> None:
         """Scroll under the pointer, parked over the active window's center when the tree gives it,
         as the Mac adapter parks it: the pointer may sit anywhere after the last click."""
-        window = a11y.frame(a11y.active_window(self._root))  # the screen the decision was made on
+        window = a11y.frame(a11y.active_window(self._tree.result()))  # the screen the decision was made on
         if window is None:
             self._do(f"pyautogui.scroll({int(lines)})")
             return
@@ -184,7 +218,7 @@ class OSWorldDesktop:
     # ----- capture, OCR, and accessibility ---------------------------------------------------
 
     def screenshot(self) -> Image.Image:
-        self._now()
+        self._step()  # and not the tree: the capture's OCR reads the screenshot while it comes
         if self._image is None:
             png = self._obs.get("screenshot")
             if not png:
