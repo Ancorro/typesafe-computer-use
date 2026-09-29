@@ -42,6 +42,16 @@ about which and the layout does. Text read inside the focused one-line field is 
 item: it is the field's value or placeholder, the state carries the value, and the field
 is an item of its own when the app declares it. A text area keeps its lines.
 
+A control under a popup says which: `button 'Organise' (top-right; under 'Restore pages?')`.
+Chrome draws its bubbles, menus, and dialogs as windows of their own, in front of the page, so a
+click on the page there lands on the popup. Picking such an item closes the popup first, with its
+own close button, or with Escape when it has none, and never with its other buttons ('Restore'
+reopens the last session), then clicks the item, in the same step. Only OSWorld's tree marks
+these. A Mac or Windows item that came from the tree is pressed through it, which reaches the
+control under a popup anyway. "Under", not "covered by": in a replay of 81 captured requests
+from screens with a popup, "covered by" drew the classifier toward Escape and lowered its
+confidence, while "under" left both as they were.
+
 Splitting the decision into three questions keeps screen noise out of the action
 choice. Every stall found while building this came from two options that meant the
 same thing. Confidence measures concentration, so overlapping options always read as
@@ -117,7 +127,7 @@ on the app, and the node and time caps bind first on a big tree: Notes and Chrom
 
 | key | does |
 |---|---|
-| `click_item` | press the element through the accessibility tree when the item came from it, so the press lands on the control rather than on whatever covers it; a mouse click at the center of the box otherwise, and as the fallback when the press is refused |
+| `click_item` | press the element through the accessibility tree when the item came from it, so the press lands on the control rather than on whatever covers it; a mouse click at the center of the box otherwise, and as the fallback when the press is refused, after closing the popup in front of it when there is one |
 | `press_offscreen` | `AXPress` a labelled control the app exposes but does not show, chosen from the off-screen list; offered only when that list is not empty, and a refusal counts as a no-op since there is no pixel to fall back on |
 | `use_browser` | go to the browser, showing the website the `site` answer names: `none` brings it forward on the page already open there, a `SITES` catalog key opens that URL through AppleScript `open location`, and `other` opens a URL the writer proposes |
 | `type_text` | the writer composes the string; it is set on the focused element through the accessibility tree, with keystrokes as the fallback when the value does not read back, and a TypeSafe Noul then checks the field's value; text the writer submits gets Return at once instead, and the next screen is the check |

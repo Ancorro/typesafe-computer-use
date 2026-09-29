@@ -93,6 +93,7 @@ def perceive(
     Fills `screen.ax_refs` on the way, so an item that came from the accessibility tree can be
     pressed through it later. The merge renumbers everything, hence the side table over the
     final indices rather than a handle on the item itself, which has to stay printable.
+    `screen.covered` is a side table the same way: the items under a popup, and which popup.
 
     Fills `screen.offscreen` too: labelled controls the app exposes but does not show. They are
     offered on their own, never as items, because nothing on the capture points at them.
@@ -112,6 +113,10 @@ def perceive(
     merged = merge_with_origins([block for block in blocks if not in_field(block, screen)], controls, budget)
     screen.ax_refs.clear()
     screen.ax_refs.update({it.index: nodes[origin].ref for it, origin in merged if origin is not None and nodes[origin].ref})
+    screen.covered.clear()
+    screen.covered.update(
+        {it.index: nodes[origin].covered_by for it, origin in merged if origin is not None and nodes[origin].covered_by}
+    )
     items = [it for it, _ in merged]
     screen.offscreen.clear()
     screen.offscreen.extend(offscreen_controls(hidden, items))

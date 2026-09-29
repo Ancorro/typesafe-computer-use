@@ -12,7 +12,8 @@ adapter joins the two at the step boundary:
   hands them to OSWorld and returns the observation taken after they ran. Reads before any input
   use the observation in hand.
 - A wait appends `WAIT`, an action of its own, which OSWorld sleeps in the VM. It never sleeps
-  here: time has to pass where the page is loading.
+  here: time has to pass where the page is loading. A pause between two inputs of one step, such
+  as closing a popup and clicking what it covered, is a `time.sleep` in their code instead.
 
 The screenshot is the capture at scale 1.0, so a click lands on the capture's own pixels. The app,
 window, focused field, URL, and controls come from the accessibility tree, and are simply unknown
@@ -144,8 +145,14 @@ class OSWorldDesktop:
         return "OSWorld's step limit, or Ctrl-C on its runner"
 
     def sleep_watching(self, seconds: float) -> None:
-        if seconds > 0:
-            self.actions.append(WAIT)  # OSWorld knows it only as an action on its own
+        """A pause between two inputs of one step goes into their code, so they stay one action. Any
+        other is `WAIT`, which OSWorld knows only as an action of its own."""
+        if seconds <= 0:
+            return
+        if self.actions and self.actions[-1] != WAIT:
+            self._do(f"time.sleep({seconds})")
+        else:
+            self.actions.append(WAIT)
 
     def accessibility_trusted(self) -> bool:
         return True
