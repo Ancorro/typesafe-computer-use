@@ -10,7 +10,7 @@ from PIL import Image
 
 from typesafe_computer_use import runner, writer
 from typesafe_computer_use.actions import Context
-from typesafe_computer_use.models import Field, Guidance
+from typesafe_computer_use.models import Field, Guidance, Popup
 from typesafe_computer_use.runner import RunConfig, RunState, hand_off, resolve
 from typesafe_computer_use.writer import ANSWER_IMAGE_EDGE, Answer, Fill, compose_answer
 
@@ -55,6 +55,17 @@ def test_the_answer_request_carries_the_capture_and_the_run(screen, make_item, m
     assert packet["why_the_run_stopped"] == "the goal is achieved"
     assert packet["actions_taken"] == ["clicked 'TOUR'"]
     assert packet["screen_text_in_reading_order"] == ["SEP 19, 2026"]
+
+
+def test_the_answer_reads_which_text_is_under_a_popup(screen, make_item):
+    fake = FakeWriter({"achieved": False, "answer": "The bookmark manager is open."})
+    bubble = Popup("Restore pages?", 1592.0, 103.0, 334.0, 260.0)
+    items = [make_item(0, "Organise"), make_item(1, "Restore pages?")]
+
+    compose_answer(fake, GOAL, replace(screen, covered={0: bubble}), items, [], "the classifier stopped")
+
+    packet = json.loads(fake.requests[0]["messages"][0]["content"][-1]["text"])
+    assert packet["screen_text_in_reading_order"] == ["Organise (under 'Restore pages?')", "Restore pages?"]
 
 
 def test_the_answer_request_carries_what_the_run_has_learned_and_offers_both_ways_on(screen, make_item):

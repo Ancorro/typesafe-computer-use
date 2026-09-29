@@ -28,6 +28,7 @@ from typesafe_computer_use.platform_adapter import current, host
 
 FIXTURE = (Path(__file__).parent / "fixtures" / "osworld" / "ubuntu-chrome.xml").read_text()
 NO_ACTIVE_WINDOW = Path(__file__).parent / "fixtures" / "osworld" / "ubuntu-chrome-no-active-window-captured.xml"
+RESTORE_BUBBLE = Path(__file__).parent / "fixtures" / "osworld" / "ubuntu-chrome-restore-bubble-captured"
 DISPLAY = (1920, 1080)
 GOAL = "open Gmail"
 STEP_SECONDS = 10.0
@@ -198,6 +199,29 @@ def test_a_name_the_writer_submits_goes_out_with_its_return_as_one_action(jev, t
 
     assert agent.predict(GOAL, obs(tree))[1] == ["DONE"]
     assert run_json(tmp_path)["history"] == ["typed 'Thomas' into 'Name' via keystrokes and pressed Return"]
+
+
+def test_an_item_under_a_popup_is_clicked_in_the_action_that_closes_the_popup(jev, tmp_path):
+    """OSWorld's chrome/2ad9387a, from the tree and capture of that run: the "Restore pages?" bubble's
+    Close button sat over the bookmark manager's Organise button. jev clicked Organise, which closed
+    the bubble, saw no menu, and took two more steps to open it. Now the bubble is closed by its Close
+    button and Organise clicked after it, in one action, and never by its Restore button."""
+    captured = {
+        "screenshot": RESTORE_BUBBLE.with_suffix(".png").read_bytes(),
+        "accessibility_tree": RESTORE_BUBBLE.with_suffix(".xml").read_text(),
+        "instruction": GOAL,
+    }
+    agent = jev(scripted(("click_item", "Organise")))
+
+    response, actions = agent.predict("make a bookmarks bar folder called Favorites", captured)
+    assert actions == ["pyautogui.click(1891, 139)\ntime.sleep(0.5)\npyautogui.click(1888, 142)"]
+    assert response == "click_item 'Organise' (0.90)"
+    payload = (tmp_path / "jev" / "step-001-payload.txt").read_text()
+    assert "\"button 'Organise' (top-right; under 'Restore pages?')\"" in payload
+    assert payload.count("under 'Restore pages?'") == 1, "the bubble's own controls are not under it"
+
+    assert agent.predict(GOAL, captured)[1] == ["DONE"]
+    assert run_json(tmp_path)["history"] == ["closed 'Restore pages?' then clicked 'Organise'"]
 
 
 def test_a_wait_is_a_wait_step_and_a_stall_ends_in_done(jev, tmp_path):
@@ -455,26 +479,27 @@ def test_activate_raises_the_browser_or_starts_it_and_no_other_app():
 
 def test_the_other_inputs_and_waits():
     desktop = over(obs())
+    desktop.sleep_watching(3.0)
     desktop.click_at((12.4, 99.6))
     desktop.clear_field()
     desktop.scroll(-10)
     desktop.sleep_watching(0)
-    desktop.sleep_watching(3.0)
+    desktop.sleep_watching(0.5)
     desktop.press("return")
 
     assert desktop.actions == [
+        "WAIT",  # with no input before it, an action of its own: OSWorld knows it only that way
         "\n".join(
             [
-                "pyautogui.click(12, 100)",
+                "pyautogui.click(12, 100)",  # input after a wait is not folded into it
                 CLEAR,
                 "pyautogui.scroll(-10, x=995, y=554)",  # over the active window's center
+                "time.sleep(0.5)",  # a pause between two inputs is in their code, so they stay one action
+                "pyautogui.press('enter')",
             ]
         ),
-        "WAIT",  # an action of its own: OSWorld knows it only that way
-        "pyautogui.press('enter')",  # input after a wait is not folded into what came before it
     ]
-    for code in (desktop.actions[0], desktop.actions[2]):
-        ast.parse(PREFIX + code)
+    ast.parse(PREFIX + desktop.actions[1])
 
 
 def test_input_after_the_browsers_code_runs_whichever_way_it_branched():
