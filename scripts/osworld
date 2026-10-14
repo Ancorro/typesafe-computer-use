@@ -48,6 +48,9 @@ usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 # which judges the screen, reasons a little. .env overrides any of these, so every CLICKER_WRITER_*
 # setting must then agree with the model named.
 luna_writer() {
+  case "${CLICKER_WRITER_API:-}" in  # an agent CLI signed in on its own: no key; both agents then share it
+    claude-code|codex|opencode) echo "+ jev's writer: the $CLICKER_WRITER_API CLI"; return ;;
+  esac
   [[ -n "${OPENAI_API_KEY:-}" || -n "${CLICKER_WRITER_API_KEY:-}" ]] ||
     die "jev's writer here is $LUNA_MODEL: set OPENAI_API_KEY (or the CLICKER_WRITER_* settings) in .env"
   export CLICKER_WRITER_API="${CLICKER_WRITER_API:-openai}"
@@ -271,6 +274,12 @@ set_envs() {
   ENVS=$1
 }
 
+# run-stack is run-jev with the stack's agent (typesafe_computer_use/osworld/stack_agent.py) in jev's place.
+AGENT_MODULE=agent AGENT_CLASS=JevAgent AGENT_SCRIPT=run_multienv_jev.py
+run_stack() {
+  AGENT_MODULE=stack_agent AGENT_CLASS=StackAgent AGENT_SCRIPT=run_multienv_stack.py JEV_MODEL=jev-stack run_jev "$@"
+}
+
 run_jev() {
   local tasks=() ocr="" task
   while [[ $# -gt 0 ]]; do
@@ -301,20 +310,20 @@ run_jev() {
   luna_writer
   # Build the agent once here, as the runner will: a bad OCR backend or writer setting fails now,
   # not after the VM has started.
-  echo "+ checking that JevAgent(ocr=$ocr, provider=$PROVIDER) builds"
+  echo "+ checking that $AGENT_CLASS(ocr=$ocr, provider=$PROVIDER) builds"
   "$PYTHON" -c '
-import sys
-from typesafe_computer_use.osworld.agent import JevAgent
+import importlib, sys
+Agent = getattr(importlib.import_module("typesafe_computer_use.osworld." + sys.argv[3]), sys.argv[4])
 try:
-    JevAgent(ocr=sys.argv[1], provider=sys.argv[2])
+    Agent(ocr=sys.argv[1], provider=sys.argv[2])
 except (ValueError, RuntimeError) as error:
-    sys.exit(f"scripts/osworld: {error}")' "$ocr" "$PROVIDER"
+    sys.exit(f"scripts/osworld: {error}")' "$ocr" "$PROVIDER" "$AGENT_MODULE" "$AGENT_CLASS"
 
   local version meta
   version=$(shared_version "${tasks[@]}")
   meta=$(task_meta "${tasks[@]}")
   archive_earlier "$JEV_MODEL" "${tasks[@]}"
-  run_in_checkout .venv/bin/python scripts/python/run_multienv_jev.py \
+  run_in_checkout .venv/bin/python "scripts/python/$AGENT_SCRIPT" \
     --ocr "$ocr" \
     --model "$JEV_MODEL" \
     --provider_name "$PROVIDER" \
@@ -383,6 +392,7 @@ PROVIDER=${OSWORLD_PROVIDER:-docker}
 case "${1:-}" in
   setup) shift; setup "$@" ;;
   run-jev) shift; run_jev "$@" ;;
+  run-stack) shift; run_stack "$@" ;;
   run-luna) shift; run_luna "$@" ;;
   results) shift; results "$@" ;;
   *) usage; exit 2 ;;

@@ -74,7 +74,8 @@ class CliWriter:
         content.append({"type": "text", "text": text})
         line = json.dumps({"type": "user", "message": {"role": "user", "content": content}})
         command = [
-            "claude", "-p", "--tools", "", "--no-session-persistence", "--input-format", "stream-json",
+            "claude", "-p", "--tools", "", "--no-session-persistence", "--setting-sources", "", "--strict-mcp-config",
+            "--input-format", "stream-json",
             "--output-format", "stream-json", "--verbose", "--system-prompt", system,
             *(["--model", model] if model else []), *(["--json-schema", json.dumps(schema)] if schema else []),
         ]  # fmt: skip
