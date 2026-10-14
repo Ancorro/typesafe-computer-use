@@ -171,6 +171,10 @@ class OSWorldDesktop:
         else:
             self._do(f"pyautogui.press({KEYS.get(key, key)!r})")
 
+    def hotkey(self, *keys: str) -> None:
+        """A key combination, such as ctrl+shift+o (the stack's key steps)."""
+        self._do(f"pyautogui.hotkey({', '.join(repr(KEYS.get(k, k)) for k in keys)})")
+
     def type_text(self, text: str) -> None:
         self._do(f"pyautogui.write({text!r}, interval={TYPE_INTERVAL})")
 

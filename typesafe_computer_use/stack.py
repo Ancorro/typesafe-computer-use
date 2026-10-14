@@ -28,8 +28,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
-import subprocess
 import sys
 import time
 from collections.abc import Callable
@@ -42,15 +40,17 @@ from .config import MAX_OPTIONS
 from .perception import capture, perceive
 from .platform_adapter import desktop
 from .runner import RunConfig
-from .writer import WriterError, _structured, checked, make_writer, parse_json
+from .writer import _structured, make_writer
 
 WINDOWS_KEYS = frozenset({"return", "escape", "tab", "delete"})  # what the Windows adapter can press
 
-PLAN_SYSTEM = """You plan how to reach a goal on a computer ({desktop}). A fast classifier carries out "do" steps by
-clicking what it sees, one action at a time, and has no memory: give it one short concrete subgoal per step whose
-progress is visible on screen (open an app, click a menu item, open a page). Text or a key sequence whose progress the
-screen does not show (a sum in Calculator, a form value, a cell's formula) goes in a "type" step, typed in one go into
-the app in front. A "key" step presses {keys}.
+PLAN_SYSTEM = """You plan how to reach a goal on a computer ({desktop}). A fast classifier carries out "do" steps, one
+action at a time, with no memory: give it one short concrete subgoal per step whose progress is visible on screen. Its
+only actions are: left-click a visible item, open a website in the browser, type into the focused text field, press
+Enter, Escape or Back, scroll, and bring an open app to the front. It cannot right-click, double-click, drag, hover or
+use shortcuts: plan those as "key" steps (a shortcut) or reach the same thing through visible menus and buttons.
+Text or a key sequence whose progress the screen does not show (a sum in Calculator, a form value, a cell's formula)
+goes in a "type" step, typed in one go into the app in front. A "key" step presses {keys}.
 
 "status": "ok" with a plan; "cannot" when the goal is impossible or contradicts what the screen shows (say why in
 "note"); "ask" when the goal is ambiguous or misses information only the user has (put the one question in "note").
@@ -61,15 +61,17 @@ something the goal did not ask for are never planned.
 "plan" (status ok): one step per line, written as  kind | what | expect
   kind    do, type or key
   what    the subgoal (do), the exact characters (type), or the key (key)
-  expect  the text that should be on screen after the step, as short as possible (a number, a title, a button's
-          label), or app:<Name> for the app that should be in front (named as "front_app" names apps), or blank if
-          nothing reliable can be named
-Before a type or key step, an earlier step's expect must name the app it goes to (app:<Name>).
+  expect  exact words that will be visible on screen after the step, copied as the app shows them (a button's label,
+          a menu item, a title, a number): code searches the screen's text for them, so never a description such as
+          "menu appears". Or app:<Name> for the app that should be in front (named as "front_app" names apps), or
+          blank if no words can be named for sure
+A type or key step goes to the app the last app:<Name> expect named, or else to the app in front now.
 The last step's expect must prove the goal is met. Use as few steps as the goal needs."""
 
 REPLAN_NOTE = """The screen is not what the plan expected ("failed_step" and "why" say how). Steps in "done_and_checked"
 stay done. From the screen as it is now (its text is given): plan only what remains, or answer "cannot" if the screen
-shows the goal cannot be done (say what you see), or "ask" if only the user can resolve it."""
+shows the goal cannot be done (say what you see), or "ask" if only the user can resolve it. Never plan the failed
+step again as it was: it did not work, so reach its result another way (another control, a menu, a shortcut)."""
 
 PLAN_REPLY = {"status": {"type": "string"}, "note": {"type": "string"}, "plan": {"type": "string"}}
 
@@ -90,6 +92,7 @@ class StackConfig:
     asks: int = 2
     keys: frozenset[str] | None = WINDOWS_KEYS
     ask: Callable[[str], str | None] | None = None
+    fallback_steps: int = 0  # with no `ask`: when stuck, jev alone runs the whole goal for up to this many actions
     window: Callable[[], tuple[str, bool]] = lambda: ("", False)
     run_config: dict = field(default_factory=dict)  # extra RunConfig fields for "do" steps (OSWorld: delay, read_ahead)
     resume: dict | None = None  # {"goal", "question", "done", "reply"}: the user answered the question a run stopped on
@@ -143,10 +146,10 @@ class Stack:
     def key_ok(self, key: str) -> bool:
         key = key.lower()
         if self.cfg.keys is None:
-            return bool(re.fullmatch(r"(ctrl\+)?[a-z0-9]+|ctrl\+[^\s]", key))
+            return bool(re.fullmatch(r"((ctrl|alt|shift)\+)*([a-z0-9]+|[^\s+])", key))
         return key in self.cfg.keys
 
-    def parse_plan(self, text: str) -> list[dict]:
+    def parse_plan(self, text: str, front: str | None = None) -> list[dict]:
         steps = []
         for line in text.splitlines():
             parts = [p.strip() for p in line.strip().strip("-*").split("|")]
@@ -156,7 +159,7 @@ class Stack:
             if kind == "key" and not self.key_ok(what):
                 continue
             steps.append(dict(kind=kind, what=what, expect=expect))
-        app = None  # type/key steps go to the app the last app:<Name> expect named; None: no app was named, re-plan
+        app = front  # type/key steps go to the app the last app:<Name> expect named, else the app in front at planning
         for s in steps:
             if s["kind"] != "do":
                 s["app"] = app
@@ -164,24 +167,11 @@ class Stack:
                 app = s["expect"][4:].strip()
         return steps
 
-    def structured(self, system: str, packet: dict) -> dict:
-        """One JSON reply from the writer. Claude Code is called directly without the user's settings and MCP servers:
-        hooks such as a SessionStart sync made each call 8.5 s, 2.3 s without them (2026-10-13); the login still
-        applies. Other writers, or any failure here, go through clicker's writer."""
-        claude = shutil.which("claude")
-        if config.writer_api() == "claude-code" and claude:
-            schema = {"type": "object", "properties": PLAN_REPLY, "required": list(PLAN_REPLY), "additionalProperties": False}
-            command = [claude, "-p", "--tools", "", "--no-session-persistence", "--setting-sources", "",
-                       "--strict-mcp-config", "--model", os.environ.get("CLICKER_WRITER_MODEL", "haiku"),
-                       "--output-format", "json", "--json-schema", json.dumps(schema), "--system-prompt", system]
-            try:
-                r = subprocess.run(command, input=json.dumps(packet), capture_output=True, text=True, encoding="utf-8",
-                                   timeout=180)
-                out = json.loads(r.stdout)
-                return checked(out.get("structured_output") or parse_json(out.get("result") or ""), PLAN_REPLY)
-            except (OSError, subprocess.SubprocessError, ValueError, WriterError) as e:
-                self.log({"event": "writer fallback", "why": str(e)[:300]})
-        return _structured(self.cfg.writer, system, packet, PLAN_REPLY, max_tokens=1500)
+    def structured(self, system: str, packet: dict, image=None) -> dict:
+        """One JSON reply from the writer's answering model, which sees the screenshot (Claude Code: sonnet). The
+        2026-10-13 OSWorld check planned steps for a window that was not open: from the screen's text alone the
+        planner could not tell what was showing."""
+        return _structured(self.cfg.writer, system, packet, PLAN_REPLY, max_tokens=2000, answering=True, image=image)
 
     def plan(self, goal, screen, texts, done=(), failed=None, why=""):
         """-> (status, note, steps): ok + steps, or cannot / ask with the reason or question in note."""
@@ -196,10 +186,10 @@ class Stack:
             system += "\n\n" + REPLAN_NOTE
             packet |= {"done_and_checked": list(done), "failed_step": failed, "why": why}
         t0 = time.time()
-        reply = self.structured(system, packet)
+        reply = self.structured(system, packet, screen.image)
         status = reply["status"].strip().lower()
         status = status if status in ("ok", "cannot", "ask") else "ok"
-        steps = self.parse_plan(reply["plan"]) if status == "ok" else []
+        steps = self.parse_plan(reply["plan"], screen.app) if status == "ok" else []
         if status == "ok" and not steps:
             status, reply["note"] = "ask", "I could not make a plan for this goal. Can you say it another way?"
         self.log({"event": "plan", "replan": bool(failed), "status": status, "note": reply["note"],
@@ -222,9 +212,11 @@ class Stack:
         if step["kind"] == "type":
             desktop.type_text(step["what"])
         else:
-            key = step["what"].lower()
-            command = key.startswith("ctrl+")
-            desktop.press(key.removeprefix("ctrl+"), command=command)
+            keys = step["what"].lower().split("+")
+            if len(keys) > 2 or (len(keys) == 2 and keys[0] != "ctrl"):
+                desktop.hotkey(*keys)  # the OSWorld adapter; parse_plan allows combinations only with keys=None
+            else:
+                desktop.press(keys[-1], command=len(keys) == 2)
         desktop.sleep_watching(0.8)
         return "typed" if step["kind"] == "type" else "pressed"
 
@@ -258,6 +250,14 @@ class Stack:
                 asks += 1
                 q = note if status == "ask" else f"I can't do this as asked: {note} What should I do instead?"
                 reply = self.ask_user(q, goal, done)
+                if reply is None and cfg.fallback_steps and status == "ask":
+                    # Nobody to answer (a benchmark): jev alone takes the whole goal for the steps left, as it would
+                    # have without the stack (2026-10-13: a stuck stack stopped after 5 of OSWorld's 50 steps).
+                    self.log({"event": "fallback", "why": q})
+                    rc = RunConfig(goal=cfg.goal, out=cfg.out / "fallback", act=cfg.act, steps=cfg.fallback_steps,
+                                   **cfg.run_config)
+                    result = f"fallback: {runner.run(rc, cfg.context(cfg.goal)).outcome}"
+                    break
                 if reply is None:
                     result, question = ("cannot" if status == "cannot" else "needs user"), q
                     reason = note if status == "cannot" else ""
@@ -286,16 +286,24 @@ class Stack:
                 # only reads (2026-10-13: "read the display", already showing 160) changes nothing and still passes.
                 stale = self.shows(step["expect"], *start) and (screen.app, texts) == before
                 ok = self.shows(step["expect"], screen, texts) and not stale
+                # Soft pass: jev finished the subgoal and the screen changed, but the planner's words are not in what
+                # OCR and the tree read (2026-10-13: "New folder" after jev opened the dialog). The next plan sees the
+                # screenshot, so a wrong soft pass is caught there rather than spending a re-plan here.
+                soft = not ok and step["kind"] == "do" and outcome == "done" and (screen.app, texts) != before
+                ok = ok or soft
                 why = ("" if ok else f"the screen did not change; jev said {outcome!r}" if stale
                        else f"expected {step['expect']!r} on screen after the step; jev said {outcome!r}")
             title, hung = cfg.window()
             if hung and not ok:
                 why += f"; the window in front ({title!r}) is not responding"
+            if ok and why:
+                why = f"soft pass: {why}"
             self.log({"event": "step", "i": i, **step, "outcome": outcome, "check": ok, "why": why, "app": screen.app,
                       "title": title, "hung": hung, "screen_text": texts[:40]})
             if not cfg.act:
                 result = "dry run"  # nothing acted: later checks would only test the unchanged screen
             elif ok:
+                replans = 0  # the budget is for failures in a row: a long task re-plans many times between them
                 done.append(f"{step['kind']} | {step['what']} | {step['expect']}")
                 if final and self.shows(final, screen, texts) and not self.shows(final, *start):
                     result = "done"  # the goal's proof is on screen: steps left would only re-check it

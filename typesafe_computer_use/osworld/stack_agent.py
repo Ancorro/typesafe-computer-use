@@ -67,7 +67,7 @@ class _StackRun(_Run):
                 stack = Stack(StackConfig(
                     goal=self.cfg.goal, out=self.cfg.out, writer=self.agent.writer, context=self._subgoal_context,
                     desktop_name="Ubuntu, an OSWorld virtual machine", act=True, step_cap=self.agent.step_cap,
-                    keys=None, ask=None, run_config={"delay": 0, "read_ahead": True},
+                    keys=None, ask=None, fallback_steps=self.agent.max_steps, run_config={"delay": 0, "read_ahead": True},
                 ))
                 try:
                     result = stack.run()
