@@ -120,5 +120,6 @@ def annotate(screen: Screen, items: list[Item], chosen: str, out: Path) -> None:
     f = screen.field
     if f is not None:
         s = screen.scale
-        draw.rectangle((f.x * s, f.y * s, (f.x + f.w) * s, (f.y + f.h) * s), outline=(0, 200, 0), width=3)
+        xs, ys = sorted((f.x * s, (f.x + f.w) * s)), sorted((f.y * s, (f.y + f.h) * s))  # a field can report a negative size
+        draw.rectangle((xs[0], ys[0], xs[1], ys[1]), outline=(0, 200, 0), width=3)
     image.save(out)

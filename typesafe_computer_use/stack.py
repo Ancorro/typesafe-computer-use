@@ -84,6 +84,14 @@ step again as it was: it did not work, so reach its result another way (another 
 PLAN_REPLY = {"status": {"type": "string"}, "note": {"type": "string"}, "plan": {"type": "string"},
               "complete": {"type": "boolean"}}
 MAX_PLANS = 20  # planner calls per run: past this, the run is stuck however its checks went
+VERIFY_DONE = 3  # times "done" is checked on the screenshot per run; past that, "done" stands
+
+DONE_SYSTEM = """You check whether a goal on a computer ({desktop}) is fully met, from the screenshot and the screen's text.
+Judge what the screen shows now, not what was attempted: a command typed into a terminal is not its result, and a file
+being edited is not saved until the app shows it saved. "met": true only when every part of the goal is done. "missing":
+what is still not done, or blank when met."""
+
+DONE_REPLY = {"met": {"type": "boolean"}, "missing": {"type": "string"}}
 
 # What the planner may call an app, against the names the desktop reports ("front_app"). 2026-10-13 dev: the planner
 # wrote app:Calc and app:Files for soffice and nautilus, and the check failed on the name alone.
@@ -138,6 +146,7 @@ class Stack:
         self.cfg = cfg
         self.log_path = cfg.out / "stack.jsonl"
         self.plans = 0
+        self.verified = 0
 
     # ----- log, look, check --------------------------------------------------------------------------------------
 
@@ -222,6 +231,17 @@ class Stack:
     @property
     def no_user(self) -> bool:
         return self.cfg.ask is None and self.cfg.fallback_steps > 0  # a benchmark: nobody answers
+
+    def goal_met(self, goal, screen, texts) -> tuple[bool, str]:
+        """The verifier: before a run ends "done", the answering model looks at the screen. 2026-10-14 dev round 3: 3 of
+        5 "done" ends scored 0; in a terminal the typed command itself holds the expected words."""
+        self.verified += 1
+        t0 = time.time()
+        reply = _structured(self.cfg.writer, DONE_SYSTEM.format(desktop=self.cfg.desktop_name),
+                            {"goal": goal, "front_app": screen.app, "screen_text": texts[:120]}, DONE_REPLY,
+                            max_tokens=800, answering=True, image=screen.image)
+        self.log({"event": "verify", "met": reply["met"], "missing": reply["missing"], "seconds": round(time.time() - t0, 1)})
+        return reply["met"], reply["missing"]
 
     def plan(self, goal, screen, texts, done=(), failed=None, why=""):
         """-> (status, note, steps, complete): ok + steps, or cannot / ask with the reason or question in note.
@@ -309,7 +329,7 @@ class Stack:
                 asks += 1
                 q = note if status == "ask" else f"I can't do this as asked: {note} What should I do instead?"
                 reply = self.ask_user(q, goal, done)
-                if reply is None and cfg.fallback_steps and status == "ask":
+                if reply is None and cfg.fallback_steps:  # "cannot" too: a wrong FAIL on a feasible task costs the point
                     # Nobody to answer (a benchmark): jev alone takes the whole goal for the steps left, as it would
                     # have without the stack (2026-10-13: a stuck stack stopped after 5 of OSWorld's 50 steps).
                     self.log({"event": "fallback", "why": q})
@@ -329,9 +349,15 @@ class Stack:
                 final = steps[-1]["expect"] if steps and complete else ""
                 continue
             if not steps:
-                if complete or not cfg.act:
+                if not cfg.act:
                     result = "done"
                     break
+                if complete:
+                    met, missing = (True, "") if self.verified >= VERIFY_DONE else self.goal_met(goal, screen, texts)
+                    if met:
+                        result = "done"
+                        break
+                    done.append(f"verifier: the goal is not met yet; missing: {missing}")
                 if self.plans >= cfg.max_plans:
                     status, note = "ask", f"I'm stuck: {self.plans} plans and the goal is not met. Try another way, or stop?"
                     continue
@@ -374,7 +400,11 @@ class Stack:
                 replans = 0  # the budget is for failures in a row: a long task re-plans many times between them
                 done.append(f"{step['kind']} | {step['what']} | {step['expect']}")
                 if final and self.shows(final, screen, texts) and not self.shows(final, *start):
-                    result = "done"  # the goal's proof is on screen: steps left would only re-check it
+                    met, missing = (True, "") if self.verified >= VERIFY_DONE else self.goal_met(goal, screen, texts)
+                    if met:
+                        result = "done"  # the goal's proof is on screen: steps left would only re-check it
+                    else:
+                        final = ""  # the words showed but the goal is not met: finish the plan, then the next stage
             elif self.plans < cfg.max_plans and (replans < cfg.verify_tries or uncertain):
                 # Screen wrong: re-plan from what it shows (the planner sees the screenshot; it may also say cannot /
                 # ask). A step that changed the screen but missed its words is uncertain, not a failure: OCR misses
