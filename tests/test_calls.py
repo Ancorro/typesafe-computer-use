@@ -106,3 +106,25 @@ def test_run_json_shows_tokens_per_model_and_the_calls_line_is_unchanged(monkeyp
     assert run["calls"]["classifier"]["calls"] == 1
     log = (tmp_path / "run" / "run.log").read_text()
     assert "calls: classifier 1 (50%, " in log and "writer 1 (50%, " in log
+
+
+def test_subq_gets_no_one_option_choice_and_the_answer_is_that_option(monkeypatch):
+    # SubQ's System One refuses a choice with fewer than 2 options; Jev takes one, so Jev's request is unchanged.
+    from typesafe_sdk import Choice, Noul
+    from typesafe_sdk._core.response_types import SystemOneResponse, Usage as WireUsage
+
+    sent = []
+
+    def reply(**request):
+        sent.append(request)
+        return SystemOneResponse(model="m", usage=WireUsage(), answers={})
+
+    questions = {"kind": Choice(criteria={"a": None, "b": None}), "app": Choice(criteria={"Files": None}), "ok": Noul()}
+    monkeypatch.setenv("TYPESAFE_DEFAULT_MODEL", "jev-1.13")
+    MeteredClassifier(SimpleNamespace(system_one=reply), Calls()).system_one(state={}, questions=questions)
+    assert list(sent[-1]["questions"]) == ["kind", "app", "ok"]
+
+    monkeypatch.setenv("TYPESAFE_DEFAULT_MODEL", "subq-snap-preview")
+    answers = MeteredClassifier(SimpleNamespace(system_one=reply), Calls()).system_one(state={}, questions=questions).answers
+    assert list(sent[-1]["questions"]) == ["kind", "ok"]
+    assert (answers["app"].choice, answers["app"].confidence) == ("Files", 1.0)

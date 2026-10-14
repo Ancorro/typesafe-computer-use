@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from types import SimpleNamespace
+
+import msgspec
+from typesafe_sdk import Choice, ChoiceAnswer
 
 CLASSIFIER = "classifier"
 WRITER = "writer"
@@ -96,6 +100,9 @@ class MeteredClassifier:
         self._calls = calls
 
     def system_one(self, **request):
+        settled = {}
+        if _needs_two_options(request):
+            request, settled = _settle_single_option_choices(request)
         with self._calls.record(CLASSIFIER):
             reply = self._client.system_one(**request)
         usage = getattr(reply, "usage", None)
@@ -104,7 +111,31 @@ class MeteredClassifier:
             input_tokens=_tokens(usage, "input_tokens"),
             output_tokens=_tokens(usage, "output_tokens"),
         )
+        if settled:
+            reply = msgspec.structs.replace(reply, answers={**reply.answers, **settled})
         return reply
+
+
+def _needs_two_options(request: dict) -> bool:
+    """SubQ's System One endpoint refuses a choice with fewer than 2 options (422); Jev takes one.
+
+    Only a SubQ model gets the workaround, so a run on Jev sends exactly what it always did.
+    """
+    model = request.get("model") or os.environ.get("TYPESAFE_DEFAULT_MODEL", "")
+    return model.startswith("subq")
+
+
+def _settle_single_option_choices(request: dict) -> tuple[dict, dict]:
+    """Drop each one-option choice from the request and answer it with that option, the only one it has."""
+    questions, settled = {}, {}
+    for name, question in request.get("questions", {}).items():
+        criteria = getattr(question, "criteria", None)
+        if isinstance(question, Choice) and len(criteria) == 1:
+            (only,) = criteria
+            settled[name] = ChoiceAnswer(choice=only, confidence=1.0, probabilities={only: 1.0})
+        else:
+            questions[name] = question
+    return {**request, "questions": questions}, settled
 
 
 class MeteredWriter:
