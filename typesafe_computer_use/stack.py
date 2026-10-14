@@ -55,8 +55,8 @@ goes in a "type" step, typed in one go into the app in front. A "key" step press
 "status": "ok" with a plan; "cannot" when the goal is impossible or contradicts what the screen shows (say why in
 "note"); "ask" when the goal is ambiguous or misses information only the user has (put the one question in "note").
 If "front_window_not_responding" is set, that window is hung: close it and open the app again before anything else.
-Never guess a person, account, amount, address or file the goal does not name. Steps that send, buy, delete or post
-something the goal did not ask for are never planned.
+{asking}
+Steps that send, buy, delete or post something the goal did not ask for are never planned.
 
 "plan" (status ok): one step per line, written as  kind | what | expect
   kind    do, type or key
@@ -66,14 +66,38 @@ something the goal did not ask for are never planned.
           "menu appears". Or app:<Name> for the app that should be in front (named as "front_app" names apps), or
           blank if no words can be named for sure
 A type or key step goes to the app the last app:<Name> expect named, or else to the app in front now.
-The last step's expect must prove the goal is met. Use as few steps as the goal needs."""
+"complete": true when these steps finish the whole goal (then the last step's expect proves it is met); false when they
+are the next stage only, and you will plan the rest after seeing the screen again. A long goal is best planned in
+stages of a few steps."""
+
+ASK_USER = "Never guess a person, account, amount, address or file the goal does not name: answer \"ask\"."
+NO_USER = """Nobody can answer questions here: never answer "ask". When a detail is missing, take the most reasonable
+reading of the goal and of the files and apps on screen, and say which in "note"."""
+
+CONTINUE_NOTE = """The steps in "done_and_checked" are done. Plan the next stage from the screen as it is now."""
 
 REPLAN_NOTE = """The screen is not what the plan expected ("failed_step" and "why" say how). Steps in "done_and_checked"
 stay done. From the screen as it is now (its text is given): plan only what remains, or answer "cannot" if the screen
 shows the goal cannot be done (say what you see), or "ask" if only the user can resolve it. Never plan the failed
 step again as it was: it did not work, so reach its result another way (another control, a menu, a shortcut)."""
 
-PLAN_REPLY = {"status": {"type": "string"}, "note": {"type": "string"}, "plan": {"type": "string"}}
+PLAN_REPLY = {"status": {"type": "string"}, "note": {"type": "string"}, "plan": {"type": "string"},
+              "complete": {"type": "boolean"}}
+MAX_PLANS = 20  # planner calls per run: past this, the run is stuck however its checks went
+
+# What the planner may call an app, against the names the desktop reports ("front_app"). 2026-10-13 dev: the planner
+# wrote app:Calc and app:Files for soffice and nautilus, and the check failed on the name alone.
+APP_ALIASES = {
+    "soffice": ("libreoffice", "calc", "writer", "impress", "office"),
+    "nautilus": ("files", "file manager", "filemanager"),
+    "code": ("vs code", "vscode", "visual studio code"),
+    "gnome-terminal": ("terminal",),
+    "evince": ("document viewer", "pdf viewer"),
+    "eog": ("image viewer",),
+    "gimp": ("gnu image",),
+    "thunderbird": ("mail", "email"),
+    "vlc": ("media player",),
+}
 
 
 @dataclass
@@ -93,6 +117,7 @@ class StackConfig:
     keys: frozenset[str] | None = WINDOWS_KEYS
     ask: Callable[[str], str | None] | None = None
     fallback_steps: int = 0  # with no `ask`: when stuck, jev alone runs the whole goal for up to this many actions
+    max_plans: int = MAX_PLANS
     window: Callable[[], tuple[str, bool]] = lambda: ("", False)
     run_config: dict = field(default_factory=dict)  # extra RunConfig fields for "do" steps (OSWorld: delay, read_ahead)
     resume: dict | None = None  # {"goal", "question", "done", "reply"}: the user answered the question a run stopped on
@@ -112,6 +137,7 @@ class Stack:
     def __init__(self, cfg: StackConfig) -> None:
         self.cfg = cfg
         self.log_path = cfg.out / "stack.jsonl"
+        self.plans = 0
 
     # ----- log, look, check --------------------------------------------------------------------------------------
 
@@ -128,8 +154,14 @@ class Stack:
         return screen, [it.text for it in perceive(screen, MAX_OPTIONS, "")]
 
     def front_is(self, app, screen) -> bool:
-        norm = lambda s: (s or "").lower().replace(" ", "")  # noqa: E731
-        return bool(app) and (norm(app) in norm(screen.app) or norm(app) in norm(self.cfg.window()[0]))
+        norm = lambda s: (s or "").lower().replace(" ", "").removesuffix(".exe")  # noqa: E731
+        want, front, title = norm(app), norm(screen.app), norm(self.cfg.window()[0])
+        if not want:
+            return False
+        if want in front or want in title or (front and front in want):
+            return True
+        return any(name in front and any(want in norm(a) or norm(a) in want for a in aliases)
+                   for name, aliases in APP_ALIASES.items())
 
     def shows(self, expect, screen, texts) -> bool:
         """The check: code decides. Digits compare without separators (Calculator shows 86,400)."""
@@ -173,28 +205,39 @@ class Stack:
         planner could not tell what was showing."""
         return _structured(self.cfg.writer, system, packet, PLAN_REPLY, max_tokens=2000, answering=True, image=image)
 
+    @property
+    def no_user(self) -> bool:
+        return self.cfg.ask is None and self.cfg.fallback_steps > 0  # a benchmark: nobody answers
+
     def plan(self, goal, screen, texts, done=(), failed=None, why=""):
-        """-> (status, note, steps): ok + steps, or cannot / ask with the reason or question in note."""
+        """-> (status, note, steps, complete): ok + steps, or cannot / ask with the reason or question in note.
+        `failed` None with steps in `done` asks for the next stage of a plan that ran out (complete false)."""
         title, hung = self.cfg.window()
         packet = {"goal": goal, "front_app": screen.app, "front_window_title": title, "screen_text": texts[:120]}
         if hung:
             packet["front_window_not_responding"] = True
         keys = ("any key (enter, esc, tab, backspace, f2, up, ...) or a ctrl+<key> shortcut" if self.cfg.keys is None
                 else "one of: " + ", ".join(sorted(self.cfg.keys)))
-        system = PLAN_SYSTEM.format(desktop=self.cfg.desktop_name, keys=keys)
+        system = PLAN_SYSTEM.format(desktop=self.cfg.desktop_name, keys=keys, asking=NO_USER if self.no_user else ASK_USER)
         if failed:
             system += "\n\n" + REPLAN_NOTE
             packet |= {"done_and_checked": list(done), "failed_step": failed, "why": why}
+        elif done:
+            system += "\n\n" + CONTINUE_NOTE
+            packet |= {"done_and_checked": list(done)}
         t0 = time.time()
         reply = self.structured(system, packet, screen.image)
         status = reply["status"].strip().lower()
         status = status if status in ("ok", "cannot", "ask") else "ok"
         steps = self.parse_plan(reply["plan"], screen.app) if status == "ok" else []
+        complete = bool(reply.get("complete"))
         if status == "ok" and not steps:
             status, reply["note"] = "ask", "I could not make a plan for this goal. Can you say it another way?"
-        self.log({"event": "plan", "replan": bool(failed), "status": status, "note": reply["note"],
-                  "seconds": round(time.time() - t0, 1), "steps": steps, "raw": reply["plan"][-600:]})
-        return status, reply["note"], steps
+        self.plans += 1
+        self.log({"event": "plan", "replan": bool(failed), "next_stage": bool(done and not failed), "status": status,
+                  "complete": complete, "note": reply["note"], "seconds": round(time.time() - t0, 1), "steps": steps,
+                  "raw": reply["plan"][-600:]})
+        return status, reply["note"], steps, complete
 
     # ----- act ---------------------------------------------------------------------------------------------------
 
@@ -235,13 +278,13 @@ class Stack:
             r = cfg.resume
             goal, done = f"{r['goal']}\n(User, when asked {r['question']!r}: {r['reply']})", list(r["done"])
             self.log({"event": "resume", "reply": r["reply"], "act": cfg.act})
-            status, note, steps = self.plan(goal, screen, texts, done, failed={"question": r["question"]},
-                                            why="the user answered")
+            status, note, steps, complete = self.plan(goal, screen, texts, done, failed={"question": r["question"]},
+                                                      why="the user answered")
         else:
             goal = cfg.goal
             self.log({"event": "start", "goal": goal, "act": cfg.act, "step_cap": cfg.step_cap})
-            status, note, steps = self.plan(goal, screen, texts)
-        final = steps[-1]["expect"] if steps else ""  # the plan's proof that the goal is met
+            status, note, steps, complete = self.plan(goal, screen, texts)
+        final = steps[-1]["expect"] if steps and complete else ""  # the plan's proof that the goal is met
         while result is None:
             if status in ("cannot", "ask"):  # instruction wrong: the user decides, the run never guesses
                 if asks >= cfg.asks:
@@ -265,19 +308,26 @@ class Stack:
                 goal = f"{goal}\n(User, when asked {q!r}: {reply})"
                 replans = 0  # the user's answer is new information: the re-plan budget starts again
                 screen, texts = self.look()
-                status, note, steps = self.plan(goal, screen, texts, done, failed={"question": q},
-                                                why="the user answered")
-                final = steps[-1]["expect"] if steps else final
+                status, note, steps, complete = self.plan(goal, screen, texts, done, failed={"question": q},
+                                                          why="the user answered")
+                final = steps[-1]["expect"] if steps and complete else ""
                 continue
             if not steps:
-                result = "done"
-                break
+                if complete or not cfg.act:
+                    result = "done"
+                    break
+                if self.plans >= cfg.max_plans:
+                    status, note = "ask", f"I'm stuck: {self.plans} plans and the goal is not met. Try another way, or stop?"
+                    continue
+                status, note, steps, complete = self.plan(goal, screen, texts, done)  # the next stage
+                final = steps[-1]["expect"] if steps and complete else ""
+                continue
             step = steps.pop(0)
             i += 1
             if step["kind"] != "do" and cfg.act and not self.front_is(step.get("app"), screen):  # never type blind
                 why = (f"{step['app'] or 'no app was named'} should be in front for this {step['kind']} step, "
                        f"but {screen.app!r} is")
-                outcome, ok = "not run", False
+                outcome, ok, changed = "not run", False, False
             else:
                 before = (screen.app, texts)
                 outcome = self.do_step(step, i)
@@ -289,9 +339,10 @@ class Stack:
                 # Soft pass: jev finished the subgoal and the screen changed, but the planner's words are not in what
                 # OCR and the tree read (2026-10-13: "New folder" after jev opened the dialog). The next plan sees the
                 # screenshot, so a wrong soft pass is caught there rather than spending a re-plan here.
-                soft = not ok and step["kind"] == "do" and outcome == "done" and (screen.app, texts) != before
+                changed = (screen.app, texts) != before
+                soft = not ok and step["kind"] == "do" and outcome == "done" and changed
                 ok = ok or soft
-                why = ("" if ok else f"the screen did not change; jev said {outcome!r}" if stale
+                why = ("" if ok else f"the screen did not change; jev said {outcome!r}" if stale or not changed
                        else f"expected {step['expect']!r} on screen after the step; jev said {outcome!r}")
             title, hung = cfg.window()
             if hung and not ok:
@@ -300,6 +351,7 @@ class Stack:
                 why = f"soft pass: {why}"
             self.log({"event": "step", "i": i, **step, "outcome": outcome, "check": ok, "why": why, "app": screen.app,
                       "title": title, "hung": hung, "screen_text": texts[:40]})
+            uncertain = not ok and outcome != "not run" and changed
             if not cfg.act:
                 result = "dry run"  # nothing acted: later checks would only test the unchanged screen
             elif ok:
@@ -307,10 +359,14 @@ class Stack:
                 done.append(f"{step['kind']} | {step['what']} | {step['expect']}")
                 if final and self.shows(final, screen, texts) and not self.shows(final, *start):
                     result = "done"  # the goal's proof is on screen: steps left would only re-check it
-            elif replans < cfg.verify_tries:  # screen wrong: re-plan from what it shows; may also say cannot / ask
-                replans += 1
-                status, note, steps = self.plan(goal, screen, texts, done, failed=step, why=why)
-                final = steps[-1]["expect"] if steps else final
+            elif self.plans < cfg.max_plans and (replans < cfg.verify_tries or uncertain):
+                # Screen wrong: re-plan from what it shows (the planner sees the screenshot; it may also say cannot /
+                # ask). A step that changed the screen but missed its words is uncertain, not a failure: OCR misses
+                # words (2026-10-13 dev: VS Code's open "snake.py" tab), and only no change at all counts toward the
+                # failures in a row.
+                replans += 0 if uncertain else 1
+                status, note, steps, complete = self.plan(goal, screen, texts, done, failed=step, why=why)
+                final = steps[-1]["expect"] if steps and complete else ""
             else:
                 status, note = "ask", (f"I'm stuck: {why}. The screen shows {screen.app!r}. "
                                        "Should I try another way, or stop?")
