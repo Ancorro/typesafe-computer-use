@@ -65,7 +65,7 @@ Steps that send, buy, delete or post something the goal did not ask for are neve
           a menu item, a title, a number): code searches the screen's text for them, so never a description such as
           "menu appears". Or app:<Name> for the app that should be in front (named as "front_app" names apps), or
           blank if no words can be named for sure
-A type or key step goes to the app the last app:<Name> expect named, or else to the app in front now.
+A type or key step goes to the app the last app:<Name> expect named{typing_default}.
 "complete": true when these steps finish the whole goal (then the last step's expect proves it is met); false when they
 are the next stage only, and you will plan the rest after seeing the screen again. A long goal is best planned in
 stages of a few steps."""
@@ -191,7 +191,10 @@ class Stack:
             if kind == "key" and not self.key_ok(what):
                 continue
             steps.append(dict(kind=kind, what=what, expect=expect))
-        app = front  # type/key steps go to the app the last app:<Name> expect named, else the app in front at planning
+        # type/key steps go to the app the last app:<Name> expect named. In a benchmark VM, else the app in front at
+        # planning; on a real desktop no default: typing into whatever is in front could land in the user's file
+        # (2026-10-14 dry run: type "Calculator" planned with an unsaved Notepad file in front).
+        app = front if self.no_user else None
         for s in steps:
             if s["kind"] != "do":
                 s["app"] = app
@@ -218,7 +221,9 @@ class Stack:
             packet["front_window_not_responding"] = True
         keys = ("any key (enter, esc, tab, backspace, f2, up, ...) or a ctrl+<key> shortcut" if self.cfg.keys is None
                 else "one of: " + ", ".join(sorted(self.cfg.keys)))
-        system = PLAN_SYSTEM.format(desktop=self.cfg.desktop_name, keys=keys, asking=NO_USER if self.no_user else ASK_USER)
+        system = PLAN_SYSTEM.format(desktop=self.cfg.desktop_name, keys=keys, asking=NO_USER if self.no_user else ASK_USER,
+                                    typing_default=", or else to the app in front now" if self.no_user else
+                                    ": name it in an earlier step, or the step is not typed")
         if failed:
             system += "\n\n" + REPLAN_NOTE
             packet |= {"done_and_checked": list(done), "failed_step": failed, "why": why}
