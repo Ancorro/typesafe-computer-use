@@ -37,7 +37,7 @@ from pathlib import Path
 
 from . import config, runner
 from .config import MAX_OPTIONS
-from .perception import capture, perceive
+from .perception import OcrCache, capture, perceive
 from .platform_adapter import desktop
 from .runner import RunConfig
 from .writer import _structured, make_writer
@@ -149,9 +149,20 @@ class Stack:
         print(json.dumps(rec), flush=True)
 
     def look(self):
-        """One capture: the app in front and every text the screen shows (goal echoes kept: the check needs them)."""
+        """One capture: the app in front and every text the screen shows (goal echoes kept: the check needs them).
+
+        Items alone are not enough: perception leaves out what OCR reads inside the focused field, whose text is its
+        value, and in a terminal the focused field is the whole terminal (2026-10-14 dev: every typed command read as
+        "no change", 4 texts, the window's buttons). So the check also reads OCR's raw lines, kept by a fresh cache
+        (one OCR pass, as before), and the field's value."""
         screen = capture(browser=config.browser())
-        return screen, [it.text for it in perceive(screen, MAX_OPTIONS, "")]
+        cache = OcrCache()
+        texts = [it.text for it in perceive(screen, MAX_OPTIONS, "", cache=cache)]
+        seen = set(texts)
+        texts += [t for t, _, _ in cache.lines if t not in seen]
+        if screen.field is not None and screen.field.value:
+            texts.append(screen.field.value)
+        return screen, texts
 
     def front_is(self, app, screen) -> bool:
         norm = lambda s: (s or "").lower().replace(" ", "").removesuffix(".exe")  # noqa: E731
