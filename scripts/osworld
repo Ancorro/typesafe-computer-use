@@ -284,6 +284,11 @@ run_stack() {
   [[ -n "${CU_STACK:-}" ]] || die "run-stack needs CU_STACK, a clone of computer-use-stack (then scripts/osworld setup)"
   AGENT_MODULE=cu_stack.osworld_agent AGENT_CLASS=StackAgent AGENT_SCRIPT=run_multienv_stack.py JEV_MODEL=jev-stack run_jev "$@"
 }
+# run-loop: computer-use-stack's one loop (cu_stack/loop_agent.py), one model picking every action.
+run_loop() {
+  [[ -n "${CU_STACK:-}" ]] || die "run-loop needs CU_STACK, a clone of computer-use-stack (then scripts/osworld setup)"
+  AGENT_MODULE=cu_stack.loop_agent AGENT_CLASS=LoopAgent AGENT_SCRIPT=run_multienv_loop.py JEV_MODEL=jev-loop run_jev "$@"
+}
 
 run_jev() {
   local tasks=() ocr="" task
@@ -398,6 +403,7 @@ case "${1:-}" in
   setup) shift; setup "$@" ;;
   run-jev) shift; run_jev "$@" ;;
   run-stack) shift; run_stack "$@" ;;
+  run-loop) shift; run_loop "$@" ;;
   run-luna) shift; run_luna "$@" ;;
   results) shift; results "$@" ;;
   *) usage; exit 2 ;;
