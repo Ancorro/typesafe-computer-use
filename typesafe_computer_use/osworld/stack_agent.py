@@ -19,7 +19,7 @@ from functools import partial
 from ..actions import Context
 from ..models import Abort
 from ..platform_adapter import using
-from ..stack import Stack, StackConfig
+from ..stack import GNOME_KEYS, Stack, StackConfig
 from . import tree
 from .agent import BROWSER, DONE, JevAgent, _Failed, _Run, _Step, _Watching
 from .desktop import OSWorldDesktop
@@ -68,6 +68,7 @@ class _StackRun(_Run):
                     goal=self.cfg.goal, out=self.cfg.out, writer=self.agent.writer, context=self._subgoal_context,
                     desktop_name="Ubuntu, an OSWorld virtual machine", act=True, step_cap=self.agent.step_cap,
                     keys=None, ask=None, fallback_steps=self.agent.max_steps, run_config={"delay": 0, "read_ahead": True},
+                    keyboard_routes=GNOME_KEYS,
                 ))
                 try:
                     result = stack.run()

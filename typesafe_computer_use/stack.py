@@ -79,7 +79,18 @@ CONTINUE_NOTE = """The steps in "done_and_checked" are done. Plan the next stage
 REPLAN_NOTE = """The screen is not what the plan expected ("failed_step" and "why" say how). Steps in "done_and_checked"
 stay done. From the screen as it is now (its text is given): plan only what remains, or answer "cannot" if the screen
 shows the goal cannot be done (say what you see), or "ask" if only the user can resolve it. Never plan the failed
-step again as it was: it did not work, so reach its result another way (another control, a menu, a shortcut)."""
+step again as it was: it did not work, so reach its result another way (another control, a menu, a shortcut).
+"failed_steps" lists every step that failed since the last one that worked. A "do" step that left the screen unchanged
+means the classifier cannot see or use that control: never plan another "do" step with the same aim, reworded or not;
+use "key" and "type" steps for it instead."""
+
+# 2026-10-14 SubQ test: 18 of 26 stuck stack runs re-planned one click 2-3 times in new words ("Click the Files icon in
+# the dock"); GNOME's dock and top bar are not in the tree jev reads, and Impress's slide thumbnails gave low confidence.
+GNOME_KEYS = """Keyboard routes on this desktop: use them for anything in the dock or the top bar (the classifier cannot
+see those) and whenever a click did not work. Open or switch to an app: key super, type its name (Files, Terminal,
+Thunderbird, LibreOffice Calc, ...), key enter. A terminal: key ctrl+alt+t; most file work (find, copy, convert, open
+with xdg-open) is faster there. Open a file or folder: in the app key ctrl+o, or in Files key ctrl+l, then type the full
+path and key enter. Move between slides, cells, list items and fields with arrow keys, page up/down, home/end and tab."""
 
 PLAN_REPLY = {"status": {"type": "string"}, "note": {"type": "string"}, "plan": {"type": "string"},
               "complete": {"type": "boolean"}}
@@ -127,6 +138,7 @@ class StackConfig:
     fallback_steps: int = 0  # with no `ask`: when stuck, jev alone runs the whole goal for up to this many actions
     max_plans: int = MAX_PLANS
     window: Callable[[], tuple[str, bool]] = lambda: ("", False)
+    keyboard_routes: str = ""  # the desktop's ways around a click jev cannot make, added to the planner's prompt
     run_config: dict = field(default_factory=dict)  # extra RunConfig fields for "do" steps (OSWorld: delay, read_ahead)
     resume: dict | None = None  # {"goal", "question", "done", "reply"}: the user answered the question a run stopped on
 
@@ -147,6 +159,7 @@ class Stack:
         self.log_path = cfg.out / "stack.jsonl"
         self.plans = 0
         self.verified = 0
+        self.failed_here: list[dict] = []  # steps that failed since the last one that passed, shown to the re-plan
 
     # ----- log, look, check --------------------------------------------------------------------------------------
 
@@ -177,7 +190,9 @@ class Stack:
         norm = lambda s: (s or "").lower().replace(" ", "").removesuffix(".exe")  # noqa: E731
         want, front, title = norm(app), norm(screen.app), norm(self.cfg.window()[0])
         if not want:
-            return False
+            # In a benchmark VM a type/key step with no app goes to whatever is in front, the GNOME overview after
+            # "key super" included (2026-10-14 SubQ test: the step after it failed with "'' is in front").
+            return self.no_user
         if want in front or want in title or (front and front in want):
             return True
         return any(name in front and any(want in norm(a) or norm(a) in want for a in aliases)
@@ -255,9 +270,12 @@ class Stack:
         system = PLAN_SYSTEM.format(desktop=self.cfg.desktop_name, keys=keys, asking=NO_USER if self.no_user else ASK_USER,
                                     typing_default=", or else to the app in front now" if self.no_user else
                                     ": name it in an earlier step, or the step is not typed")
+        if self.cfg.keyboard_routes:
+            system += "\n\n" + self.cfg.keyboard_routes
         if failed:
             system += "\n\n" + REPLAN_NOTE
-            packet |= {"done_and_checked": list(done), "failed_step": failed, "why": why}
+            packet |= {"done_and_checked": list(done), "failed_step": failed, "why": why,
+                       "failed_steps": list(self.failed_here) or [failed]}
         elif done:
             system += "\n\n" + CONTINUE_NOTE
             packet |= {"done_and_checked": list(done)}
@@ -398,6 +416,7 @@ class Stack:
                 result = "dry run"  # nothing acted: later checks would only test the unchanged screen
             elif ok:
                 replans = 0  # the budget is for failures in a row: a long task re-plans many times between them
+                self.failed_here.clear()
                 done.append(f"{step['kind']} | {step['what']} | {step['expect']}")
                 if final and self.shows(final, screen, texts) and not self.shows(final, *start):
                     met, missing = (True, "") if self.verified >= VERIFY_DONE else self.goal_met(goal, screen, texts)
@@ -411,6 +430,7 @@ class Stack:
                 # words (2026-10-13 dev: VS Code's open "snake.py" tab), and only no change at all counts toward the
                 # failures in a row.
                 replans += 0 if uncertain else 1
+                self.failed_here.append({"kind": step["kind"], "what": step["what"], "why": why})
                 status, note, steps, complete = self.plan(goal, screen, texts, done, failed=step, why=why)
                 final = steps[-1]["expect"] if steps and complete else ""
             else:
