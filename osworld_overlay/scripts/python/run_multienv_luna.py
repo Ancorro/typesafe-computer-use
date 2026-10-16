@@ -23,6 +23,8 @@ from multiprocessing import Process, Manager, current_process
 import lib_run_single
 from lib_results_logger import log_task_error
 from desktop_env.desktop_env import DesktopEnv
+from desktop_env.providers.apptainer.provider import use_if_requested
+use_if_requested()  # jev: OSWORLD_VM_RUNTIME=apptainer runs the Docker provider's VM with Apptainer
 from mm_agents.luna_agent import MeteredGPTResponseAPIAgent  # jev: the agent, counting its tokens
 from task_loader import load_task_config, resolve_task_json_path
 

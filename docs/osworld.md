@@ -130,6 +130,31 @@ at that commit over `osworld_overlay/scripts/python/run_multienv_jev.py`, and
 the changes marked `jev:`, as each header says; a test fails until each header names the new
 commit. Then run `scripts/osworld setup`.
 
+## Run on a cluster with Apptainer
+
+On a cluster with KVM but no Docker, such as a Slurm cluster with only Apptainer,
+`OSWORLD_VM_RUNTIME=apptainer` runs OSWorld's Docker VM with Apptainer instead. The provider
+stays `docker`, so everything else in the run is the same. The change is
+`osworld_overlay/desktop_env/providers/apptainer/`, which each runner switches on at import. It
+starts the same QEMU, from the same image, with the same machine, firmware, disk and devices as
+OSWorld's Docker container. The image is built once with `apptainer pull osworld.sif
+docker://happysixd/osworld-docker@<the digest in OSWorld's docker/provider.py>`. Docker's
+container sets up a tap network as root. This provider uses QEMU's user-mode network instead, and
+forwards the four ports the harness uses (server, Chrome, VLC, VNC) to free ports on the node. Each
+VM gets its own copy-on-write overlay of the VM image, so `--envs 3` runs three VMs side by side
+on one node.
+
+```
+OSWORLD_VM_RUNTIME=apptainer OSWORLD_SIF=/path/osworld.sif \
+OSWORLD_VM_STAGE=/node-local/osworld-vm OSWORLD_VM_TMP=/node-local/osw-$SLURM_JOB_ID \
+  scripts/osworld run-stack multi_apps/<id> --ocr rapidocr --envs 3
+```
+
+`OSWORLD_VM_STAGE` copies the VM image to node-local disk once per node, so VMs don't boot from
+NFS. `OSWORLD_VM_TMP` holds each VM's overlay and its `qemu.log`. Its default is `$SLURM_TMPDIR`,
+then `/tmp`, which is RAM on many clusters. The job needs a node whose `/dev/kvm` is writable.
+`OSWORLD_KEEP_VM_DIR=1` keeps a VM's folder after it stops, for debugging.
+
 ## Run in Google Cloud
 
 OSWorld runs each task in an Ubuntu VM under KVM, so it needs a Linux host with KVM, which a Mac

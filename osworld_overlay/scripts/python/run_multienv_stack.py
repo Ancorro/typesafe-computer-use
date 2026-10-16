@@ -26,6 +26,8 @@ from multiprocessing import current_process
 import lib_run_single
 from task_loader import load_task_config, resolve_task_json_path
 from desktop_env.desktop_env import DesktopEnv
+from desktop_env.providers.apptainer.provider import use_if_requested
+use_if_requested()  # jev: OSWORLD_VM_RUNTIME=apptainer runs the Docker provider's VM with Apptainer
 from mm_agents.stack_agent import StackAgent as JevAgent  # the stack's agent in jev's place
 
 # Global variables for signal handling
