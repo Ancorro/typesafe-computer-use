@@ -134,6 +134,8 @@ setup() {
     fi
   fi
   run_in_checkout uv pip install --python .venv -e "$jev"
+  # The stack (repo computer-use-stack) beside jev, when CU_STACK points at a clone of it.
+  if [[ -n "${CU_STACK:-}" ]]; then run_in_checkout uv pip install --python .venv --no-deps -e "$CU_STACK"; fi
 
   copy_overlay
 
@@ -156,6 +158,7 @@ setup() {
 # copies them again, so an edit to osworld_overlay/ takes effect without another setup.
 copy_overlay() {
   run cp -R "$REPO/osworld_overlay/." "$CHECKOUT/"
+  if [[ -n "${CU_STACK:-}" ]]; then run cp -R "$CU_STACK/osworld_overlay/." "$CHECKOUT/"; fi
 }
 
 # Whether this repo's pyproject.toml declares the optional extra $1.
@@ -274,10 +277,12 @@ set_envs() {
   ENVS=$1
 }
 
-# run-stack is run-jev with the stack's agent (typesafe_computer_use/osworld/stack_agent.py) in jev's place.
-AGENT_MODULE=agent AGENT_CLASS=JevAgent AGENT_SCRIPT=run_multienv_jev.py
+# run-stack is run-jev with the stack's agent in jev's place. The stack lives in its own repo, computer-use-stack
+# (cu_stack/osworld_agent.py): set CU_STACK to a clone of it before `scripts/osworld setup`.
+AGENT_MODULE=typesafe_computer_use.osworld.agent AGENT_CLASS=JevAgent AGENT_SCRIPT=run_multienv_jev.py
 run_stack() {
-  AGENT_MODULE=stack_agent AGENT_CLASS=StackAgent AGENT_SCRIPT=run_multienv_stack.py JEV_MODEL=jev-stack run_jev "$@"
+  [[ -n "${CU_STACK:-}" ]] || die "run-stack needs CU_STACK, a clone of computer-use-stack (then scripts/osworld setup)"
+  AGENT_MODULE=cu_stack.osworld_agent AGENT_CLASS=StackAgent AGENT_SCRIPT=run_multienv_stack.py JEV_MODEL=jev-stack run_jev "$@"
 }
 
 run_jev() {
@@ -313,7 +318,7 @@ run_jev() {
   echo "+ checking that $AGENT_CLASS(ocr=$ocr, provider=$PROVIDER) builds"
   "$PYTHON" -c '
 import importlib, sys
-Agent = getattr(importlib.import_module("typesafe_computer_use.osworld." + sys.argv[3]), sys.argv[4])
+Agent = getattr(importlib.import_module(sys.argv[3]), sys.argv[4])
 try:
     Agent(ocr=sys.argv[1], provider=sys.argv[2])
 except (ValueError, RuntimeError) as error:

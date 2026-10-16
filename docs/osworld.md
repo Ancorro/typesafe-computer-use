@@ -145,7 +145,7 @@ VM gets its own copy-on-write overlay of the VM image, so `--envs 3` runs three 
 on one node.
 
 ```
-OSWORLD_VM_RUNTIME=apptainer OSWORLD_SIF=/path/osworld.sif \
+CU_STACK=/path/computer-use-stack OSWORLD_VM_RUNTIME=apptainer OSWORLD_SIF=/path/osworld.sif \
 OSWORLD_VM_STAGE=/node-local/osworld-vm OSWORLD_VM_TMP=/node-local/osw-$SLURM_JOB_ID \
   scripts/osworld run-stack multi_apps/<id> --ocr rapidocr --envs 3
 ```
