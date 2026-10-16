@@ -287,7 +287,7 @@ run_stack() {
 # run-loop: computer-use-stack's one loop (cu_stack/loop_agent.py), one model picking every action.
 run_loop() {
   [[ -n "${CU_STACK:-}" ]] || die "run-loop needs CU_STACK, a clone of computer-use-stack (then scripts/osworld setup)"
-  AGENT_MODULE=cu_stack.loop_agent AGENT_CLASS=LoopAgent AGENT_SCRIPT=run_multienv_loop.py JEV_MODEL=jev-loop run_jev "$@"
+  AGENT_MODULE=cu_stack.loop_agent AGENT_CLASS=LoopAgent AGENT_SCRIPT=run_multienv_loop.py JEV_MODEL=${LOOP_NAME:-jev-loop} run_jev "$@"
 }
 
 run_jev() {
