@@ -170,3 +170,12 @@ def test_claude_code_answers_at_the_answer_effort_and_writes_at_the_writer_effor
     CliWriter("claude-code").messages.create(**request())
     answering, writing = (call["command"] for call in log)
     assert answering[answering.index("--effort") + 1] == "medium" and "--effort" not in writing
+
+
+def test_claude_code_effort_is_capped_at_medium(ran, monkeypatch):
+    log, replies = ran
+    monkeypatch.setenv("CLICKER_ANSWER_REASONING", "max")
+    replies.append(json.dumps({"type": "result", "subtype": "success", "structured_output": {"url": "x"}}))
+    CliWriter("claude-code").messages.create(**{**request(), "model": "claude-sonnet-5"})
+    command = log[0]["command"]
+    assert command[command.index("--effort") + 1] == "medium"

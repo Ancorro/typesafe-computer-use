@@ -30,9 +30,11 @@ CODEX_WRITING_EFFORT = "low"
 
 def _claude_effort(answering: bool) -> str | None:
     """Claude Code's `--effort` (low to max) for this call: CLICKER_ANSWER_REASONING when answering, else
-    CLICKER_WRITER_REASONING; unset keeps the CLI's own default."""
+    CLICKER_WRITER_REASONING; unset keeps the CLI's own default. Capped at medium (owner 2026-10-21: scripted
+    Claude calls go no higher)."""
     name = "CLICKER_ANSWER_REASONING" if answering else "CLICKER_WRITER_REASONING"
-    return os.environ.get(name, "").strip() or None
+    effort = os.environ.get(name, "").strip().lower() or None
+    return "medium" if effort in ("high", "xhigh", "max") else effort
 
 
 class CliWriterError(Exception):
