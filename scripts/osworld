@@ -32,7 +32,7 @@ PYTHON="$CHECKOUT/.venv/bin/python"
 RESULTS="$REPO/results"
 
 # The same for both agents, so their runs compare.
-MAX_STEPS=50
+MAX_STEPS=${OSWORLD_MAX_STEPS:-50}  # OSWorld 2.0 public runs use 200+
 SLEEP_AFTER_EXECUTION=2.0
 JEV_MODEL=jev  # the name OSWorld files jev's results under
 JEV_OBSERVATION=screenshot_a11y_tree
