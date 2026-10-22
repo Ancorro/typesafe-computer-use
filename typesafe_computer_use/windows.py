@@ -77,7 +77,23 @@ BROWSER_EXES = {"Google Chrome": "chrome", "Microsoft Edge": "msedge", "Firefox"
 VK = {"return": 0x0D, "tab": 0x09, "escape": 0x1B, "a": 0x41, "delete": 0x2E, "[": 0xDB, "left": 0x25}
 VK_CONTROL = 0x11
 VK_ALT = 0x12
-EXTENDED_KEYS = {0x2E, 0x25}  # Delete and the arrows live on the extended keypad
+VK_SHIFT = 0x10
+VK_WIN = 0x5B
+# Every key a model may name (the loop's key action, xdotool/pyautogui-style names), letters and digits included.
+NAMED_KEYS = {
+    "enter": 0x0D, "return": 0x0D, "tab": 0x09, "esc": 0x1B, "escape": 0x1B, "space": 0x20, "backspace": 0x08,
+    "delete": 0x2E, "del": 0x2E, "insert": 0x2D, "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22,
+    "pgup": 0x21, "pgdn": 0x22, "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
+    "ctrl": VK_CONTROL, "control": VK_CONTROL, "alt": VK_ALT, "shift": VK_SHIFT,
+    "win": VK_WIN, "super": VK_WIN, "windows": VK_WIN, "meta": VK_WIN, "cmd": VK_WIN, "command": VK_WIN,
+    "capslock": 0x14, "printscreen": 0x2C, "menu": 0x5D, "apps": 0x5D,
+    "-": 0xBD, "=": 0xBB, "[": 0xDB, "]": 0xDD, ";": 0xBA, "'": 0xDE, ",": 0xBC, ".": 0xBE, "/": 0xBF, "\\": 0xDC, "`": 0xC0,
+    **{f"f{n}": 0x6F + n for n in range(1, 13)},
+    **{chr(c): c - 32 for c in range(ord("a"), ord("z") + 1)},
+    **{str(d): 0x30 + d for d in range(10)},
+}
+# Delete, Insert, Home, End, Page Up/Down, the arrows and the Windows keys live on the extended keypad
+EXTENDED_KEYS = {0x2E, 0x2D, 0x24, 0x23, 0x21, 0x22, 0x25, 0x26, 0x27, 0x28, VK_WIN, 0x5D}
 COMMAND_CHORDS = {"[": (VK_ALT, VK["left"])}
 
 INPUT_MOUSE = 0
@@ -125,9 +141,22 @@ def display_name(process_name: str) -> str:
     return next((name for name, exe in BROWSER_EXES.items() if exe == stem), process_name)
 
 
+def vk_for(key: str) -> int:
+    """The virtual key a key name stands for (any case); a ValueError names one it does not know."""
+    vk = NAMED_KEYS.get(key.strip().lower()) if key.strip() else None
+    if vk is None:
+        raise ValueError(f"no Windows key named {key!r}")
+    return vk
+
+
 def key_events(key: str, command: bool = False) -> list[tuple[int, int]]:
     """(virtual key, flags) for pressing a key, with its modifiers held around it."""
-    keys = COMMAND_CHORDS.get(key, (VK_CONTROL, VK[key])) if command else (VK[key],)
+    keys = COMMAND_CHORDS.get(key, (VK_CONTROL, vk_for(key))) if command else (vk_for(key),)
+    return chord_events(keys)
+
+
+def chord_events(keys) -> list[tuple[int, int]]:
+    """(virtual key, flags) for a chord: each key down in order, then up in reverse."""
     down = [(vk, KEYEVENTF_EXTENDEDKEY if vk in EXTENDED_KEYS else 0) for vk in keys]
     up = [(vk, flags | KEYEVENTF_KEYUP) for vk, flags in reversed(down)]
     return down + up
@@ -279,6 +308,12 @@ def click_at(point: tuple[float, float]) -> None:
 
 def press(key: str, command: bool = False) -> None:
     for vk, flags in key_events(key, command):
+        _send(_key(vk=vk, flags=flags))
+
+
+def hotkey(*keys: str) -> None:
+    """A key combination such as ctrl+shift+t or win+r: modifiers held in order, the last key pressed, all let go."""
+    for vk, flags in chord_events([vk_for(k) for k in keys]):
         _send(_key(vk=vk, flags=flags))
 
 

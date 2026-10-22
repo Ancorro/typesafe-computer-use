@@ -189,3 +189,16 @@ def test_ocr_lines_box_the_words_and_report_full_confidence():
     }
     assert ocr_lines(result) == [("Sign in", windows.OCR_CONFIDENCE, (10.0, 18.0, 57.0, 34.0))]
     assert windows.OCR_CONFIDENCE == 1.0  # Windows.Media.Ocr reports none
+
+
+def test_any_key_a_model_names_maps_to_a_virtual_key():
+    from typesafe_computer_use.windows import VK_WIN, chord_events, vk_for
+
+    assert vk_for("super") == vk_for("win") == VK_WIN and vk_for("Enter") == 0x0D and vk_for("esc") == 0x1B
+    assert vk_for("f5") == 0x74 and vk_for("t") == 0x54 and vk_for("7") == 0x37
+    with pytest.raises(ValueError):
+        vk_for("terminal")
+    ext = KEYEVENTF_EXTENDEDKEY
+    assert chord_events([vk_for("ctrl"), vk_for("shift"), vk_for("t")]) == [
+        (0x11, 0), (0x10, 0), (0x54, 0), (0x54, KEYEVENTF_KEYUP), (0x10, KEYEVENTF_KEYUP), (0x11, KEYEVENTF_KEYUP)]
+    assert chord_events([VK_WIN]) == [(VK_WIN, ext), (VK_WIN, ext | KEYEVENTF_KEYUP)]
