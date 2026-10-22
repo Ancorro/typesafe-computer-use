@@ -158,3 +158,15 @@ def test_flatten_keeps_text_and_images_in_order():
 
 def test_wsl_path_maps_a_windows_drive():
     assert _wsl_path(PureWindowsPath(r"C:\Users\x\AppData\Local\Temp\a.png")) == "/mnt/c/Users/x/AppData/Local/Temp/a.png"
+
+
+def test_claude_code_answers_at_the_answer_effort_and_writes_at_the_writer_effort(ran, monkeypatch):
+    log, replies = ran
+    monkeypatch.setenv("CLICKER_ANSWER_REASONING", "medium")
+    monkeypatch.delenv("CLICKER_WRITER_REASONING", raising=False)
+    for _ in range(2):
+        replies.append(json.dumps({"type": "result", "subtype": "success", "structured_output": {"url": "x"}}))
+    CliWriter("claude-code").messages.create(**{**request(), "model": "claude-sonnet-5"})
+    CliWriter("claude-code").messages.create(**request())
+    answering, writing = (call["command"] for call in log)
+    assert answering[answering.index("--effort") + 1] == "medium" and "--effort" not in writing

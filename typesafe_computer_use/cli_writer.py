@@ -28,6 +28,13 @@ DEFAULT_MODELS = {
 CODEX_WRITING_EFFORT = "low"
 
 
+def _claude_effort(answering: bool) -> str | None:
+    """Claude Code's `--effort` (low to max) for this call: CLICKER_ANSWER_REASONING when answering, else
+    CLICKER_WRITER_REASONING; unset keeps the CLI's own default."""
+    name = "CLICKER_ANSWER_REASONING" if answering else "CLICKER_WRITER_REASONING"
+    return os.environ.get(name, "").strip() or None
+
+
 class CliWriterError(Exception):
     """The agent CLI could not be started, failed, or answered with nothing."""
 
@@ -78,6 +85,7 @@ class CliWriter:
             "--input-format", "stream-json",
             "--output-format", "stream-json", "--verbose", "--system-prompt", system,
             *(["--model", model] if model else []), *(["--json-schema", json.dumps(schema)] if schema else []),
+            *(["--effort", effort] if (effort := _claude_effort(model == self.answering_model)) else []),
         ]  # fmt: skip
         out = _run(command, line + "\n", tmp)
         result = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
