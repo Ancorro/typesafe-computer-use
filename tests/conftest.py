@@ -60,9 +60,17 @@ if _absent("ocrmac"):
     _package.__path__ = []
     _package.ocrmac = _stub("ocrmac.ocrmac")
     _package.ocrmac.OCR = _OCR
-for _windows_module in ("psutil", "uiautomation", "win32api", "win32con", "win32gui", "win32process", "winocr"):
+for _windows_module in ("psutil", "pywintypes", "uiautomation", "win32api", "win32con", "win32gui", "win32process", "winocr"):
     if _absent(_windows_module):
         _stub(_windows_module)
+if "error" not in vars(sys.modules["pywintypes"]):  # a refused win32 call raises pywintypes.error
+
+    class _Win32Error(Exception):
+        def __init__(self, winerror: int = 0, funcname: str = "", strerror: str = "") -> None:
+            super().__init__(winerror, funcname, strerror)
+            self.winerror, self.funcname, self.strerror = winerror, funcname, strerror
+
+    sys.modules["pywintypes"].error = _Win32Error
 
 import pytest  # noqa: E402
 from PIL import Image  # noqa: E402

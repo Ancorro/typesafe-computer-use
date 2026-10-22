@@ -3,6 +3,7 @@
 import ctypes
 
 import pytest
+from PIL import Image
 
 from typesafe_computer_use import windows
 from typesafe_computer_use.models import ROLE_WORDS, TEXT_ROLES, Missed
@@ -202,3 +203,27 @@ def test_any_key_a_model_names_maps_to_a_virtual_key():
     assert chord_events([vk_for("ctrl"), vk_for("shift"), vk_for("t")]) == [
         (0x11, 0), (0x10, 0), (0x54, 0), (0x54, KEYEVENTF_KEYUP), (0x10, KEYEVENTF_KEYUP), (0x11, KEYEVENTF_KEYUP)]
     assert chord_events([VK_WIN]) == [(VK_WIN, ext), (VK_WIN, ext | KEYEVENTF_KEYUP)]
+
+
+# The adapter's own functions, before conftest's no_real_machine swaps them for refusals in each test
+REAL_MOVE, REAL_SCREENSHOT = windows._move, windows.screenshot
+
+
+def test_a_refused_cursor_move_is_a_miss_not_a_crash(monkeypatch):
+    import pywintypes
+
+    def refuse(point):
+        raise pywintypes.error(0, "SetCursorPos", "No error message is available")
+
+    monkeypatch.setitem(vars(windows.win32api), "SetCursorPos", refuse)
+    with pytest.raises(Missed, match="elevated window"):
+        REAL_MOVE((500, 500))
+
+
+def test_the_window_in_front_comes_onto_the_captured_monitor(monkeypatch):
+    moved = []
+    monkeypatch.setitem(vars(windows.win32gui), "GetForegroundWindow", lambda: 42)
+    monkeypatch.setitem(vars(windows.win32gui), "IsIconic", lambda h: False)
+    monkeypatch.setattr(windows, "_onto_primary", moved.append)
+    monkeypatch.setattr(windows.ImageGrab, "grab", lambda: Image.new("RGB", (4, 4)))
+    assert REAL_SCREENSHOT().size == (4, 4) and moved == [42]

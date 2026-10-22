@@ -26,6 +26,7 @@ import uiautomation as auto
 import win32api
 import win32con
 import win32gui
+import pywintypes
 import win32process
 import winocr
 from PIL import Image, ImageGrab
@@ -287,7 +288,13 @@ def accessibility_trusted() -> bool:
 
 
 def _move(point: tuple[int, int]) -> None:
-    win32api.SetCursorPos(point)
+    """Windows refuses to move the cursor while an elevated window (Task Manager, an installer) or the secure desktop
+    (a UAC prompt, the lock screen) has the input: that is a Missed action, not a crash."""
+    try:
+        win32api.SetCursorPos(point)
+    except pywintypes.error as error:
+        raise Missed(f"Windows would not move the cursor ({error.strerror or 'no reason given'}): an elevated window"
+                     " or a locked screen has the input; close it or press a key instead") from error
     time.sleep(EVENT_GAP)
 
 
@@ -570,7 +577,12 @@ def frontmost_window_center(pid: int | None = None) -> tuple[float, float] | Non
 
 
 def screenshot() -> Image.Image:
-    """The primary monitor, the one macOS calls the main display."""
+    """The primary monitor, the one macOS calls the main display. The window in front comes onto it first: one that
+    opened on another monitor (Task Manager, a dialog) would otherwise be out of every capture, its screen "unchanged"."""
+    with suppress(Exception):  # no window in front (the desktop), or one this process may not move
+        hwnd = win32gui.GetForegroundWindow()
+        if hwnd and not win32gui.IsIconic(hwnd):
+            _onto_primary(hwnd)
     return ImageGrab.grab().convert("RGB")
 
 
