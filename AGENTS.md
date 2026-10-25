@@ -46,3 +46,5 @@ itself. When you add a new call that reaches the machine, add it to the guard in
 ## Everything else
 
 See `CONTRIBUTING.md` for how the project works and what a pull request needs.
+
+- Secrets (2026-10-25): `.env` keeps settings only; `TYPESAFE_API_KEY=` stays blank. Run key-needing commands as `scripts/with-keys.sh CMD` (key from the fleet infra secrets). Never read or print key values.
