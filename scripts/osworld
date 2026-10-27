@@ -88,12 +88,16 @@ need() { command -v "$1" >/dev/null || die "$2 needs $1 on PATH"; }
 
 # Export the keys in this repo's .env, if there is one, without printing them.
 load_env() {
+  # A key already in the environment (scripts/with-keys.sh) wins over .env's blank TYPESAFE_API_KEY=.
+  local key=${TYPESAFE_API_KEY:-}
   if [[ -f "$REPO/.env" ]]; then
     set -a
     # shellcheck disable=SC1091
     . "$REPO/.env"
     set +a
   fi
+  [[ -n "$key" ]] && export TYPESAFE_API_KEY=$key
+  return 0
 }
 
 # ----- setup ---------------------------------------------------------------------------------
