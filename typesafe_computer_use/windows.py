@@ -44,6 +44,31 @@ CLICK_TOLERANCE_PX = 1  # how far the cursor may land from its target before a c
 WHEEL_DELTA = 120  # one notch of the wheel
 LINES_PER_NOTCH = 3  # the Windows default; the actions ask for lines, as on macOS
 
+# CU_MONITOR picks the one monitor captured and acted on, by a piece of its device ID or name ("BNQ", "BenQ",
+# "DISPLAY6"); unset, it is the primary. Every coordinate the rest of the code sees is relative to that monitor's
+# top-left corner, so captures, items and clicks line up as they do on the primary. Read on every call, so a value
+# from .env counts.
+
+
+def monitor_rect() -> tuple[int, int, int, int]:
+    """left, top, right, bottom of the chosen monitor in virtual-screen pixels; a ValueError when none matches."""
+    wanted = os.environ.get("CU_MONITOR", "").strip().lower()
+    found = []
+    for handle, _, _ in win32api.EnumDisplayMonitors():
+        info = win32api.GetMonitorInfo(handle)
+        device = win32api.EnumDisplayDevices(info["Device"], 0)
+        names = f"{info['Device']} {device.DeviceID} {device.DeviceString}".lower()
+        if (wanted in names) if wanted else info["Flags"] & win32con.MONITORINFOF_PRIMARY:
+            found.append(tuple(info["Monitor"]))
+    if len(found) != 1:
+        raise ValueError(f"CU_MONITOR={wanted!r} matches {len(found)} monitors, not one")
+    return found[0]
+
+
+def _origin() -> tuple[int, int]:
+    left, top, _, _ = monitor_rect()
+    return left, top
+
 # Windows.Media.Ocr reads one language per engine and reports no confidence, so every line it returns
 # counts as certain and passes MIN_OCR_CONFIDENCE. The language pack must be installed (see docs/windows.md).
 OCR_LANGUAGE = "en"
@@ -256,7 +281,8 @@ def _mouse(flags: int, data: int = 0) -> _Input:
 
 def mouse_location() -> tuple[float, float]:
     x, y = win32api.GetCursorPos()
-    return float(x), float(y)
+    left, top = _origin()
+    return float(x - left), float(y - top)
 
 
 def check_abort() -> None:
@@ -291,7 +317,8 @@ def _move(point: tuple[int, int]) -> None:
     """Windows refuses to move the cursor while an elevated window (Task Manager, an installer) or the secure desktop
     (a UAC prompt, the lock screen) has the input: that is a Missed action, not a crash."""
     try:
-        win32api.SetCursorPos(point)
+        left, top = _origin()
+        win32api.SetCursorPos((point[0] + left, point[1] + top))
     except pywintypes.error as error:
         raise Missed(f"Windows would not move the cursor ({error.strerror or 'no reason given'}): an elevated window"
                      " or a locked screen has the input; close it or press a key instead") from error
@@ -487,11 +514,12 @@ def _bring_forward(hwnd: int, timeout: float) -> bool:
 
 
 def _onto_primary(hwnd: int) -> None:
-    """Slide a window onto the primary monitor, the only one captured, keeping its size. A window
-    larger than the monitor lands at its top-left corner."""
+    """Slide a window onto the chosen monitor (the primary unless CU_MONITOR says), the only one captured,
+    keeping its size. A window larger than the monitor lands at its top-left corner."""
     left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-    width, height = win32api.GetSystemMetrics(win32con.SM_CXSCREEN), win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
-    x, y = max(0, min(left, width - (right - left))), max(0, min(top, height - (bottom - top)))
+    m_left, m_top, m_right, m_bottom = monitor_rect()
+    x = max(m_left, min(left, m_right - (right - left)))
+    y = max(m_top, min(top, m_bottom - (bottom - top)))
     if (x, y) != (left, top):
         win32gui.SetWindowPos(hwnd, 0, x, y, 0, 0, win32con.SWP_NOSIZE | win32con.SWP_NOZORDER)
 
@@ -559,8 +587,9 @@ def frontmost_window_bounds(pid: int | None = None) -> tuple[float, float, float
         return None
     left, top, right, bottom = win32gui.GetWindowRect(hwnd)
     w, h = float(right - left), float(bottom - top)
+    m_left, m_top = _origin()
     if w > MIN_WINDOW_SIDE_PT and h > MIN_WINDOW_SIDE_PT:
-        return float(left), float(top), w, h
+        return float(left - m_left), float(top - m_top), w, h
     return None
 
 
@@ -583,7 +612,7 @@ def screenshot() -> Image.Image:
         hwnd = win32gui.GetForegroundWindow()
         if hwnd and not win32gui.IsIconic(hwnd):
             _onto_primary(hwnd)
-    return ImageGrab.grab().convert("RGB")
+    return ImageGrab.grab(bbox=monitor_rect(), all_screens=True).convert("RGB")
 
 
 def display_scale(image: Image.Image) -> float:
@@ -712,7 +741,8 @@ def _ui_frame(element) -> Frame | None:
         return None
     if rect is None:
         return None
-    return float(rect.left), float(rect.top), float(rect.width()), float(rect.height())
+    left, top = _origin()
+    return float(rect.left - left), float(rect.top - top), float(rect.width()), float(rect.height())
 
 
 def _ui_attrs(element) -> AxAttrs:

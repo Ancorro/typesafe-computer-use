@@ -206,7 +206,7 @@ def test_any_key_a_model_names_maps_to_a_virtual_key():
 
 
 # The adapter's own functions, before conftest's no_real_machine swaps them for refusals in each test
-REAL_MOVE, REAL_SCREENSHOT = windows._move, windows.screenshot
+REAL_MOVE, REAL_SCREENSHOT, REAL_MOUSE = windows._move, windows.screenshot, windows.mouse_location
 
 
 def test_a_refused_cursor_move_is_a_miss_not_a_crash(monkeypatch):
@@ -225,5 +225,19 @@ def test_the_window_in_front_comes_onto_the_captured_monitor(monkeypatch):
     monkeypatch.setitem(vars(windows.win32gui), "GetForegroundWindow", lambda: 42)
     monkeypatch.setitem(vars(windows.win32gui), "IsIconic", lambda h: False)
     monkeypatch.setattr(windows, "_onto_primary", moved.append)
-    monkeypatch.setattr(windows.ImageGrab, "grab", lambda: Image.new("RGB", (4, 4)))
+    monkeypatch.setattr(windows, "monitor_rect", lambda: (-1920, 119, 0, 1199))
+    grabbed = []
+    monkeypatch.setattr(windows.ImageGrab, "grab", lambda **kw: grabbed.append(kw) or Image.new("RGB", (4, 4)))
     assert REAL_SCREENSHOT().size == (4, 4) and moved == [42]
+    assert grabbed == [{"bbox": (-1920, 119, 0, 1199), "all_screens": True}]
+
+
+def test_coordinates_are_relative_to_the_chosen_monitor(monkeypatch):
+    """CU_MONITOR's monitor sits left of the primary: a click at its (10, 20) lands at (-1910, 139) on the
+    virtual screen, and the cursor read back there is (10, 20) again."""
+    monkeypatch.setattr(windows, "monitor_rect", lambda: (-1920, 119, 0, 1199))
+    at = []
+    monkeypatch.setitem(vars(windows.win32api), "SetCursorPos", at.append)
+    monkeypatch.setitem(vars(windows.win32api), "GetCursorPos", lambda: (-1910, 139))
+    REAL_MOVE((10, 20))
+    assert at == [(-1910, 139)] and REAL_MOUSE() == (10.0, 20.0)
