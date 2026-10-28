@@ -17,6 +17,6 @@ No permission prompt is needed. What differs from macOS:
 - A click reads the cursor back first, and refuses to press, ending the run, when the cursor did
   not reach the target (a UAC prompt or the lock screen has the input).
 - The browser URL is read off the address bar, which Chrome and Edge show without the scheme.
-- Only one monitor is captured and acted on: the primary, or the one `CU_MONITOR` names by a piece of its device ID or name (`CU_MONITOR=BNQ`). Command-[ (back) is Alt-Left.
+- Only one monitor is captured and acted on: the primary, or the one `CU_MONITOR` names by a piece of its device ID or name (`CU_MONITOR=BNQ`). With `CU_MONITOR` set, windows on other monitors are never moved or switched to, and keys are refused while one of them is in front; only windows it starts itself move onto the chosen monitor. Command-[ (back) is Alt-Left.
 - When a policy blocks the installed `clicker.exe`, run `uv run python -m typesafe_computer_use`
   with the same arguments, or `... typesafe_computer_use inspect` for `clicker-inspect`.

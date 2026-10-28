@@ -241,3 +241,25 @@ def test_coordinates_are_relative_to_the_chosen_monitor(monkeypatch):
     monkeypatch.setitem(vars(windows.win32api), "GetCursorPos", lambda: (-1910, 139))
     REAL_MOVE((10, 20))
     assert at == [(-1910, 139)] and REAL_MOUSE() == (10.0, 20.0)
+
+
+def test_with_a_chosen_monitor_the_persons_windows_stay_put(monkeypatch):
+    """CU_MONITOR set: a window the person has open is never moved, one elsewhere is never switched to, and keys
+    are refused while one elsewhere is in front. A window this process started may be moved."""
+    monkeypatch.setenv("CU_MONITOR", "BNQ")
+    monkeypatch.setattr(windows, "monitor_rect", lambda: (-1920, 119, 0, 1199))
+    monkeypatch.setattr(windows, "_on_monitor", lambda h: h == 7)
+    monkeypatch.setitem(vars(windows.win32gui), "IsIconic", lambda h: False)
+    monkeypatch.setitem(vars(windows.win32gui), "GetWindowRect", lambda h: (100, 100, 900, 700))
+    moved = []
+    monkeypatch.setitem(vars(windows.win32gui), "SetWindowPos", lambda h, *a: moved.append(h))
+    windows._onto_primary(42)
+    assert moved == [] and windows._bring_forward(42, 0.1) is False
+    monkeypatch.setitem(vars(windows.win32gui), "GetForegroundWindow", lambda: 42)
+    with pytest.raises(windows.Missed):
+        windows._keys_allowed()
+    monkeypatch.setitem(vars(windows.win32gui), "GetForegroundWindow", lambda: 7)
+    windows._keys_allowed()
+    monkeypatch.setattr(windows, "_OWNED", {42})
+    windows._onto_primary(42)
+    assert moved == [42]

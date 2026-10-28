@@ -65,6 +65,33 @@ def monitor_rect() -> tuple[int, int, int, int]:
     return found[0]
 
 
+# With CU_MONITOR set, the person keeps working on the other monitors: their windows are never moved, only windows on
+# the chosen monitor are switched to, and keys go nowhere unless the window in front is on it. A window this process
+# started itself is its own and may be moved there.
+_OWNED: set[int] = set()
+
+
+def _chosen() -> bool:
+    return bool(os.environ.get("CU_MONITOR", "").strip())
+
+
+def _on_monitor(hwnd: int) -> bool:
+    """Whether a window sits mostly on the chosen monitor (Windows' own nearest-monitor rule)."""
+    info = win32api.GetMonitorInfo(win32api.MonitorFromWindow(hwnd, win32con.MONITOR_DEFAULTTONEAREST))
+    return tuple(info["Monitor"]) == monitor_rect()
+
+
+def _may_use(hwnd: int) -> bool:
+    return not _chosen() or hwnd in _OWNED or (not win32gui.IsIconic(hwnd) and _on_monitor(hwnd))
+
+
+def _keys_allowed() -> None:
+    """Keys go to the window in front; with CU_MONITOR set it must be on that monitor, or the keys would land in
+    whatever the person is working in elsewhere."""
+    if _chosen() and not _may_use(win32gui.GetForegroundWindow()):
+        raise Missed("the window in front is on another monitor; click a window on this screen first")
+
+
 def _origin() -> tuple[int, int]:
     left, top, _, _ = monitor_rect()
     return left, top
@@ -341,17 +368,20 @@ def click_at(point: tuple[float, float]) -> None:
 
 
 def press(key: str, command: bool = False) -> None:
+    _keys_allowed()
     for vk, flags in key_events(key, command):
         _send(_key(vk=vk, flags=flags))
 
 
 def hotkey(*keys: str) -> None:
     """A key combination such as ctrl+shift+t or win+r: modifiers held in order, the last key pressed, all let go."""
+    _keys_allowed()
     for vk, flags in chord_events([vk_for(k) for k in keys]):
         _send(_key(vk=vk, flags=flags))
 
 
 def type_text(text: str) -> None:
+    _keys_allowed()
     for unit, flags in unicode_events(text):
         _send(_key(scan=unit, flags=flags))
 
@@ -363,6 +393,7 @@ def clear_field() -> None:
 
 def scroll(lines: int) -> None:
     """Scroll events go to the view under the cursor, so park it over the frontmost window first."""
+    _keys_allowed()
     center = frontmost_window_center()
     if center is not None:
         _move((round(center[0]), round(center[1])))
@@ -445,6 +476,11 @@ def _cloaked(hwnd: int) -> bool:
 
 
 def _switchable() -> list[tuple[int, str, str]]:
+    """The windows of `_all_windows` this process may use: with CU_MONITOR set, those on that monitor or its own."""
+    return [w for w in _all_windows() if _may_use(w[0])]
+
+
+def _all_windows() -> list[tuple[int, str, str]]:
     """(hwnd, app, title) for every window a person could Alt-Tab to, top of the z-order first.
 
     Matched by window, not by process: a Store app such as Calculator runs inside
@@ -486,6 +522,8 @@ def _bring_forward(hwnd: int, timeout: float) -> bool:
     process an agent runs from. Two standard workarounds, in order: share input state with the
     thread that owns the foreground, then an Alt tap, which counts as this process's own input.
     """
+    if not _may_use(hwnd):
+        return False
     if win32gui.IsIconic(hwnd):
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
     _onto_primary(hwnd)
@@ -515,7 +553,10 @@ def _bring_forward(hwnd: int, timeout: float) -> bool:
 
 def _onto_primary(hwnd: int) -> None:
     """Slide a window onto the chosen monitor (the primary unless CU_MONITOR says), the only one captured,
-    keeping its size. A window larger than the monitor lands at its top-left corner."""
+    keeping its size. A window larger than the monitor lands at its top-left corner. With CU_MONITOR set, only a
+    window this process started moves; the person's own stay where they are."""
+    if _chosen() and hwnd not in _OWNED:
+        return
     left, top, right, bottom = win32gui.GetWindowRect(hwnd)
     m_left, m_top, m_right, m_bottom = monitor_rect()
     x = max(m_left, min(left, m_right - (right - left)))
@@ -532,12 +573,15 @@ def switch_to(key: str, timeout: float = 3.0) -> bool:
         name = key.removeprefix(LAUNCH_KEY)
         if name not in LAUNCHABLE:
             return False
+        before = {h for h, _, _ in _all_windows()}
         subprocess.Popen([LAUNCHABLE[name]])
         end = time.monotonic() + LAUNCH_SECONDS
         hwnd = None
         while hwnd is None and time.monotonic() < end:
             sleep_watching(0.25)
-            hwnd = next((h for h, _, title in _switchable() if title == name), None)
+            hwnd = next((h for h, _, title in _all_windows() if title == name and h not in before), None)
+        if hwnd is not None:
+            _OWNED.add(hwnd)
         return hwnd is not None and _bring_forward(hwnd, timeout)
     if key.startswith(WINDOW_KEY) and key.removeprefix(WINDOW_KEY).isdigit():
         hwnd = int(key.removeprefix(WINDOW_KEY))
