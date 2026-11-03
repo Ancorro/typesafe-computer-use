@@ -59,6 +59,7 @@ class CliWriter:
         self.answering_model = answering_model or os.environ.get("CLICKER_ANSWER_MODEL") or default_answering
         self.base_url = None  # no endpoint: provider() names the CLI instead
         self.messages = SimpleNamespace(create=self._create)
+        self.last_usage: dict | None = None  # the last Claude Code call's tokens and cost
 
     def describe(self) -> str:
         models = f"{self.writing_model or 'its default'} (writing), {self.answering_model or 'its default'} (answering)"
@@ -95,6 +96,13 @@ class CliWriter:
         if session:
             (cwd / f"{session}.started").touch()
         result = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
+        u = result.get("usage") or {}
+        # The call's tokens and Claude Code's cost estimate (API prices; on a subscription plan nothing is billed per
+        # call), for the loop's log (owner 2026-11-02: "track cost from the computer use stack").
+        self.last_usage = {"input_tokens": u.get("input_tokens", 0), "output_tokens": u.get("output_tokens", 0),
+                           "cache_read_tokens": u.get("cache_read_input_tokens", 0),
+                           "cache_write_tokens": u.get("cache_creation_input_tokens", 0),
+                           "cost_usd": result.get("total_cost_usd"), "duration_ms": result.get("duration_ms")}
         if result.get("is_error") or result.get("subtype") != "success":
             raise CliWriterError(f"claude failed: {str(result.get('result') or out)[-300:]}")
         structured = result.get("structured_output")

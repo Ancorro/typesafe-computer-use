@@ -202,3 +202,13 @@ def test_claude_code_keeps_one_session_for_screen_reading_calls(ran, monkeypatch
     assert second[second.index("--resume") + 1] == "11111111-2222-3333-4444-555555555555"
     assert "--no-session-persistence" not in first and first[first.index("--append-system-prompt-file") + 1] == str(ctx)
     assert "--no-session-persistence" in writing and "--resume" not in writing
+
+
+def test_claude_code_keeps_the_calls_tokens_and_cost(ran):
+    log, replies = ran
+    replies.append(json.dumps({"type": "result", "subtype": "success", "structured_output": {"url": "x"},
+                               "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100},
+                               "total_cost_usd": 0.0123}))
+    w = CliWriter("claude-code")
+    w.messages.create(**request())
+    assert w.last_usage["cost_usd"] == 0.0123 and w.last_usage["output_tokens"] == 5 and w.last_usage["cache_read_tokens"] == 100
