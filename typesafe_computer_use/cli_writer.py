@@ -196,9 +196,12 @@ def _run(command: list[str], stdin: str, cwd: Path) -> str:
     # On Windows the CLIs are often .cmd/.ps1 shims, which only a shell resolves.
     exe = shutil.which(command[0]) or command[0]
     try:
+        # No advisor: Claude Code may offer the model a stronger advisor (Opus) to consult; a scripted call uses only
+        # the model it names (owner 2026-11-02: "why is it opus??").
+        env = {**os.environ, "CLAUDE_CODE_DISABLE_ADVISOR_TOOL": "1"} if command[0] == "claude" else None
         done = subprocess.run(
             [exe, *command[1:]], input=stdin, capture_output=True, text=True, encoding="utf-8",
-            errors="replace", cwd=cwd, timeout=TIMEOUT_SECONDS,
+            errors="replace", cwd=cwd, timeout=TIMEOUT_SECONDS, env=env,
         )  # fmt: skip
     except (OSError, subprocess.TimeoutExpired) as e:
         raise CliWriterError(f"{command[0]} did not run: {e}") from e

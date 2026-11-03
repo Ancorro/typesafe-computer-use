@@ -212,3 +212,15 @@ def test_claude_code_keeps_the_calls_tokens_and_cost(ran):
     w = CliWriter("claude-code")
     w.messages.create(**request())
     assert w.last_usage["cost_usd"] == 0.0123 and w.last_usage["output_tokens"] == 5 and w.last_usage["cache_read_tokens"] == 100
+
+
+def test_claude_runs_without_the_advisor(monkeypatch, tmp_path):
+    seen = {}
+
+    class Done:
+        returncode, stdout, stderr = 0, "ok", ""
+    monkeypatch.setattr(cli_writer.subprocess, "run", lambda *a, **k: (seen.update(k), Done())[1])
+    cli_writer._run(["claude", "-p"], "", tmp_path)
+    assert seen["env"]["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] == "1"
+    cli_writer._run(["codex", "exec"], "", tmp_path)
+    assert seen["env"] is None
