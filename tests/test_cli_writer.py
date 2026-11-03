@@ -179,3 +179,26 @@ def test_claude_code_effort_is_capped_at_medium(ran, monkeypatch):
     CliWriter("claude-code").messages.create(**{**request(), "model": "claude-sonnet-5"})
     command = log[0]["command"]
     assert command[command.index("--effort") + 1] == "medium"
+
+
+def test_claude_code_keeps_one_session_for_screen_reading_calls(ran, monkeypatch, tmp_path):
+    """CLICKER_CLAUDE_SESSION: the first answering call starts the session, the rest resume it, in one folder, with the
+    context file appended; writing calls stay one-off."""
+    log, replies = ran
+    ctx = tmp_path / "ctx.md"
+    ctx.write_text("about the user")
+    monkeypatch.setenv("CLICKER_CLAUDE_SESSION", "11111111-2222-3333-4444-555555555555")
+    monkeypatch.setenv("CLICKER_CLAUDE_DIR", str(tmp_path / "s"))
+    monkeypatch.setenv("CLICKER_CLAUDE_CONTEXT", str(ctx))
+    ok = json.dumps({"type": "result", "subtype": "success", "structured_output": {"url": "x"}})
+    replies.extend([ok, ok, ok])
+    w = CliWriter("claude-code")
+    answer = {**request(), "model": __import__("typesafe_computer_use.config", fromlist=["x"]).answer_model()}
+    w.messages.create(**answer)
+    w.messages.create(**answer)
+    w.messages.create(**request())
+    first, second, writing = (c["command"] for c in log)
+    assert first[first.index("--session-id") + 1] == "11111111-2222-3333-4444-555555555555"
+    assert second[second.index("--resume") + 1] == "11111111-2222-3333-4444-555555555555"
+    assert "--no-session-persistence" not in first and first[first.index("--append-system-prompt-file") + 1] == str(ctx)
+    assert "--no-session-persistence" in writing and "--resume" not in writing

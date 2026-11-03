@@ -82,14 +82,18 @@ class CliWriter:
         content = [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b}} for b in images]
         content.append({"type": "text", "text": text})
         line = json.dumps({"type": "user", "message": {"role": "user", "content": content}})
+        answering = model == self.answering_model
+        session, cwd, extra = _claude_session(answering)
         command = [
-            "claude", "-p", "--tools", "", "--no-session-persistence", "--setting-sources", "", "--strict-mcp-config",
-            "--input-format", "stream-json",
-            "--output-format", "stream-json", "--verbose", "--system-prompt", system,
+            "claude", "-p", "--tools", "", *([] if session else ["--no-session-persistence"]), "--setting-sources", "",
+            "--strict-mcp-config", "--input-format", "stream-json",
+            "--output-format", "stream-json", "--verbose", "--system-prompt", system, *extra,
             *(["--model", model] if model else []), *(["--json-schema", json.dumps(schema)] if schema else []),
-            *(["--effort", effort] if (effort := _claude_effort(model == self.answering_model)) else []),
+            *(["--effort", effort] if (effort := _claude_effort(answering)) else []),
         ]  # fmt: skip
-        out = _run(command, line + "\n", tmp)
+        out = _run(command, line + "\n", cwd or tmp)
+        if session:
+            (cwd / f"{session}.started").touch()
         result = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
         if result.get("is_error") or result.get("subtype") != "success":
             raise CliWriterError(f"claude failed: {str(result.get('result') or out)[-300:]}")
@@ -159,6 +163,25 @@ def _wsl_path(path: Path) -> str:
     """C:\\Users\\x\\a.png as WSL sees it, /mnt/c/Users/x/a.png."""
     p = PureWindowsPath(path)
     return "/mnt/" + p.drive.rstrip(":").lower() + "/" + "/".join(p.parts[1:])
+
+
+def _claude_session(answering: bool) -> tuple[str | None, Path | None, list[str]]:
+    """One Claude Code session for every screen-reading call, kept across steps and goals until it is reset
+    (CLICKER_CLAUDE_SESSION, a UUID: a new one starts a new session; owner 2026-11-02: "sonnet is 1 session, unless i
+    reset"). It runs in CLICKER_CLAUDE_DIR, a folder that stays the same (Claude Code files sessions by folder), the
+    first call creating the session and the rest resuming it; CLICKER_CLAUDE_CONTEXT names a file appended to its
+    system prompt (Deck's context and the loop's brief). Writing calls, and runs without the variable, stay one-off."""
+    session = os.environ.get("CLICKER_CLAUDE_SESSION", "").strip()
+    if not (answering and session):
+        return None, None, []
+    cwd = Path(os.environ.get("CLICKER_CLAUDE_DIR") or Path.home() / ".cache" / "clicker-session")
+    cwd.mkdir(parents=True, exist_ok=True)
+    started = (cwd / f"{session}.started").exists()
+    extra = ["--resume", session] if started else ["--session-id", session]
+    context = os.environ.get("CLICKER_CLAUDE_CONTEXT", "").strip()
+    if context and Path(context).is_file():
+        extra += ["--append-system-prompt-file", context]
+    return session, cwd, extra
 
 
 def _run(command: list[str], stdin: str, cwd: Path) -> str:
